@@ -1,57 +1,36 @@
 import time, re, ccxt, json, os
 import pandas as pd
-import streamlit as st
+from flask import Flask, request, jsonify, render_template_string
 
-# ------------------- Page Config -------------------
-st.set_page_config(page_title="Cross-Exchange Arbitrage Scanner", layout="wide")
+app = Flask(__name__)
 
-# ------------------- Custom Dark Theme -------------------
-st.markdown("""
-    <style>
-    body, .stApp { background-color: #111111; color: #E0E0E0; }
-    .stDataFrame th { background-color: #222 !important; color: #EEE !important; font-weight: 600; }
-    .stDataFrame td { color: #EEE !important; }
-    .stDataFrame tbody tr:nth-child(even) { background-color: #1E1E1E !important; }
-    .stDataFrame tbody tr:hover { background-color: #2A2A2A !important; }
-    .good { color: #4CAF50; font-weight: 600; }
-    .bad { color: #FF5252; font-weight: 600; }
-    .spread { color: #42A5F5; font-weight: 600; }
-    .stButton>button {
-        background-color: #1976D2; color: white; border-radius: 8px;
-        padding: 0.6em 1.2em; font-size: 16px; font-weight: 600;
-        border: none; cursor: pointer;
-        transition: background-color 0.3s ease;
-    }
-    .stButton>button:hover { background-color: #1565C0; }
-    </style>
-""", unsafe_allow_html=True)
-
-st.title("🌍 Cross-Exchange Arbitrage Scanner")
-
-# ------------------- Settings Persistence -------------------
+# ====================== SETTINGS ======================
 SETTINGS_FILE = "settings.json"
 
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
         try:
-            with open(SETTINGS_FILE, "r") as f:
+            with open(SETTINGS_FILE) as f:
                 return json.load(f)
         except:
-            return {}
+            pass
     return {}
 
 def save_settings(settings):
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+    try:
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f, indent=2)
+    except:
+        pass
 
 saved = load_settings()
 
-# ------------------- Exchange List -------------------
+# ====================== CONSTANTS ======================
 TOP_EXCHANGES = [
     "binance", "okx", "coinbase", "kraken", "bybit", "kucoin",
     "mexc", "bitfinex", "bitget", "gateio", "crypto_com",
     "upbit", "whitebit", "poloniex", "bingx", "lbank",
-    "bitstamp", "gemini", "bitrue", "xt", "huobi", "bitmart",
+    "bitstamp", "gemini", "bitrue", "xt", "huobi", "bitmart"
 ]
 
 EXCHANGE_NAMES = {
@@ -61,7 +40,7 @@ EXCHANGE_NAMES = {
     "gateio": "Gate.io", "crypto_com": "Crypto.com", "upbit": "Upbit",
     "whitebit": "WhiteBIT", "poloniex": "Poloniex", "bingx": "BingX",
     "lbank": "LBank", "bitstamp": "Bitstamp", "gemini": "Gemini",
-    "bitrue": "Bitrue", "xt": "XT", "huobi": "Huobi", "bitmart": "BitMart",
+    "bitrue": "Bitrue", "xt": "XT", "huobi": "Huobi", "bitmart": "BitMart"
 }
 
 EXTRA_OPTS = {
@@ -75,13 +54,10 @@ EXTRA_OPTS = {
 }
 
 USD_QUOTES = {"USDT", "USD", "USDC", "BUSD"}
-
 LOW_FEE_CHAIN_PRIORITY = ["TRC20", "BSC", "SOL", "MATIC", "ARB", "OP", "TON", "AVAX", "ETH"]
 
-LEV_PATTERNS = [r"\b\d+[LS]\b", r"\bUP\b", r"\bDOWN\b", r"\bBULL\b", r"\bBEAR\b"]
-LEV_REGEX = re.compile("|".join(LEV_PATTERNS), re.IGNORECASE)
+LEV_REGEX = re.compile(r"\b(\d+[LS]|UP|DOWN|BULL|BEAR)\b", re.IGNORECASE)
 
-# ------------------- Chain Normalization -------------------
 CHAIN_ALIASES = {
     "BEP20": "BSC", "BSC": "BEP20",
     "MATIC": "Polygon", "Polygon": "MATIC",
@@ -94,117 +70,32 @@ def normalize_chain(name: str) -> str:
     n = name.upper().strip()
     return CHAIN_ALIASES.get(n, n)
 
-# ------------------- Main Controls (No Sidebar) -------------------
-st.header("Scanner Controls")
+# ====================== RUNTIME STATE ======================
+op_cache = {}
+lifetime_history = {}
+last_seen_keys = set()
 
-col1, col2 = st.columns(2)
-
-with col1:
-    buy_exchanges = st.multiselect(
-        "Buy Exchanges (up to 10)",
-        TOP_EXCHANGES,
-        default=saved.get("buy_exchanges", ["binance", "okx"]),
-        max_selections=10,
-        format_func=lambda x: EXCHANGE_NAMES.get(x, x),
-    )
-
-with col2:
-    sell_exchanges = st.multiselect(
-        "Sell Exchanges (up to 10)",
-        TOP_EXCHANGES,
-        default=saved.get("sell_exchanges", ["binance", "okx"]),
-        max_selections=10,
-        format_func=lambda x: EXCHANGE_NAMES.get(x, x),
-    )
-
-col_a, col_b = st.columns(2)
-
-with col_a:
-    min_profit = st.number_input("Minimum Profit % (after fees)", 0.0, 100.0, saved.get("min_profit", 1.0), 0.1)
-    max_profit = st.number_input("Maximum Profit % (after fees)", 0.0, 200.0, saved.get("max_profit", 20.0), 0.1)
-    min_24h_vol_usd = st.number_input("Min 24h Volume (USD)", 0.0, 1_000_000_000.0, saved.get("min_24h_vol_usd", 100000.0), 50000.0)
-
-with col_b:
-    exclude_chains = st.multiselect(
-        "Exclude Blockchains",
-        ["ETH", "TRC20", "BSC", "SOL", "MATIC", "ARB", "OP", "Polygon", "TON", "AVAX"],
-        default=saved.get("exclude_chains", ["ETH"])
-    )
-    include_all_chains = st.checkbox("Include all blockchains (ignore exclusion)", value=saved.get("include_all_chains", False))
-
-auto_refresh = st.checkbox("🔄 Auto Refresh Every 20s", value=saved.get("auto_refresh", False))
-scan_now = st.button("🚀 Scan Now", type="primary")
-
-# ------------------- Save settings on every change -------------------
-current_settings = {
-    "buy_exchanges": buy_exchanges,
-    "sell_exchanges": sell_exchanges,
-    "min_profit": min_profit,
-    "max_profit": max_profit,
-    "min_24h_vol_usd": min_24h_vol_usd,
-    "exclude_chains": exclude_chains,
-    "include_all_chains": include_all_chains,
-    "auto_refresh": auto_refresh,
-}
-save_settings(current_settings)
-
-# ------------------- Extra Styling -------------------
-st.markdown("""
-    <style>
-    .pill { padding: 2px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; }
-    .pill-green { background: #1B5E20; color: #E8F5E9; border: 1px solid #2E7D32; }
-    .pill-red { background: #7F1D1D; color: #FEE2E2; border: 1px solid #991B1B; }
-    .pill-blue { background: #0D47A1; color: #E3F2FD; border: 1px solid #1565C0; }
-    .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid #2A2A2A; }
-    table.arb-table { width: 100%; border-collapse: collapse; }
-    table.arb-table th, table.arb-table td { padding: 8px 10px; border-bottom: 1px solid #222; }
-    table.arb-table th { background: #1D1D1D; text-align: left; }
-    table.arb-table tr:nth-child(even) { background: #161616; }
-    table.arb-table tr:hover { background: #202020; }
-    .num { text-align: right; white-space: nowrap; }
-    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .small { color: #BDBDBD; font-size: 12px; }
-    </style>
-""", unsafe_allow_html=True)
-
-# ---------- Runtime state ----------
-if "op_cache" not in st.session_state:
-    st.session_state.op_cache = {}
-if "lifetime_history" not in st.session_state:
-    st.session_state.lifetime_history = {}
-if "last_seen_keys" not in st.session_state:
-    st.session_state.last_seen_keys = set()
-if "last_auto_scan" not in st.session_state:
-    st.session_state.last_auto_scan = 0.0
-
-# ---------- Helpers ----------
+# ====================== HELPERS ======================
 def parse_symbol(symbol: str):
     base, quote = symbol.split("/")[0], symbol.split("/")[1].split(":")[0]
     return base, quote
 
 def market_price_from_ticker(t):
-    if not t:
-        return None
+    if not t: return None
     last = t.get("last")
     if last is not None:
-        try:
-            return float(last)
-        except:
-            pass
+        try: return float(last)
+        except: pass
     bid, ask = t.get("bid"), t.get("ask")
     if bid is not None and ask is not None:
-        try:
-            return (float(bid) + float(ask)) / 2.0
-        except:
-            return None
+        try: return (float(bid) + float(ask)) / 2.0
+        except: return None
     return None
 
 def is_ticker_fresh(t, max_age_sec=300):
     ts = t.get("timestamp")
-    if ts is None:
-        return True
-    now = int(time.time() * 1000)
-    return (now - int(ts)) <= max_age_sec * 1000
+    if ts is None: return True
+    return (int(time.time() * 1000) - int(ts)) <= max_age_sec * 1000
 
 def fmt_usd(x):
     try:
@@ -213,38 +104,38 @@ def fmt_usd(x):
         if x >= 1e6: return f"${x/1e6:.2f}M"
         if x >= 1e3: return f"${x/1e3:.0f}K"
         return f"${x:,.0f}"
-    except:
-        return "$0"
+    except: return "$0"
 
 def secs_to_label(secs):
     return f"{int(secs)}s" if secs < 90 else f"{secs/60:.1f}m"
 
 def update_lifetime_for_disappeared(current_keys):
-    gone = st.session_state.last_seen_keys - set(current_keys)
+    global last_seen_keys
+    gone = last_seen_keys - set(current_keys)
     for key in gone:
-        trail = st.session_state.op_cache.get(key, [])
+        trail = op_cache.get(key, [])
         if trail:
             duration = trail[-1][0] - trail[0][0]
             if duration > 0:
-                st.session_state.lifetime_history.setdefault(key, []).append(duration)
-    st.session_state.last_seen_keys = set(current_keys)
+                lifetime_history.setdefault(key, []).append(duration)
+    last_seen_keys = set(current_keys)
 
 def stability_and_expiry(key, current_profit):
     now = time.time()
-    trail = st.session_state.op_cache.get(key, [])
+    trail = op_cache.get(key, [])
     if not trail:
-        st.session_state.op_cache[key] = [(now, current_profit)]
+        op_cache[key] = [(now, current_profit)]
         return "⏳ new", "~unknown"
     trail.append((now, current_profit))
-    st.session_state.op_cache[key] = trail[-30:]
+    op_cache[key] = trail[-30:]
     duration = trail[-1][0] - trail[0][0]
     observed = f"⏳ {secs_to_label(duration)} observed"
-    hist = st.session_state.lifetime_history.get(key, [])
+    hist = lifetime_history.get(key, [])
     if not hist:
         expiry = "~unknown"
     else:
-        avg_life = sum(hist) / len(hist)
-        remaining = avg_life - duration
+        avg = sum(hist) / len(hist)
+        remaining = avg - duration
         expiry = "⚠️ past avg" if remaining <= 0 else f"~{secs_to_label(remaining)} left"
     return observed, expiry
 
@@ -267,28 +158,27 @@ def safe_usd_volume(ex_id, symbol, ticker, price, all_tickers):
 
         info = ticker.get("info") or {}
         raw = None
-        for key in INFO_VOLUME_CANDIDATES:
-            val = info.get(key)
+        for k in INFO_VOLUME_CANDIDATES:
+            val = info.get(k)
             if val is not None:
                 try:
                     fval = float(val)
                     if fval > 0:
                         raw = fval
                         break
-                except:
-                    continue
+                except: continue
         if raw is not None:
             if q_upper in USD_QUOTES:
                 return float(raw)
-            for conv_quote in ["USDT", "USDC", "USD"]:
-                conv_sym = f"{q_upper}/{conv_quote}"
+            for conv in ["USDT", "USDC", "USD"]:
+                conv_sym = f"{q_upper}/{conv}"
                 conv_t = all_tickers.get(conv_sym)
                 conv_px = market_price_from_ticker(conv_t)
                 if conv_px:
                     return float(raw) * float(conv_px)
         if qvol:
-            for conv_quote in ["USDT", "USDC", "USD"]:
-                conv_sym = f"{q_upper}/{conv_quote}"
+            for conv in ["USDT", "USDC", "USD"]:
+                conv_sym = f"{q_upper}/{conv}"
                 conv_t = all_tickers.get(conv_sym)
                 conv_px = market_price_from_ticker(conv_t)
                 if conv_px:
@@ -299,17 +189,11 @@ def safe_usd_volume(ex_id, symbol, ticker, price, all_tickers):
 
 def symbol_ok(ex_obj, symbol):
     m = ex_obj.markets.get(symbol, {})
-    if not m:
-        return False
-    if not m.get("spot", True):
-        return False
+    if not m or not m.get("spot", True): return False
     base, quote = parse_symbol(symbol)
-    if quote.upper() not in USD_QUOTES:
-        return False
-    if LEV_REGEX.search(symbol):
-        return False
-    if m.get("active") is False:
-        return False
+    if quote.upper() not in USD_QUOTES: return False
+    if LEV_REGEX.search(symbol): return False
+    if m.get("active") is False: return False
     return True
 
 def choose_common_chain(ex1, ex2, coin, exclude_chains, include_all_chains):
@@ -319,7 +203,6 @@ def choose_common_chain(ex1, ex2, coin, exclude_chains, include_all_chains):
         nets1_raw = c1.get("networks", {}) or {}
         nets2_raw = c2.get("networks", {}) or {}
 
-        # Normalize for comparison
         nets1_norm = {normalize_chain(k): (k, v) for k, v in nets1_raw.items()}
         nets2_norm = {normalize_chain(k): (k, v) for k, v in nets2_raw.items()}
 
@@ -328,228 +211,469 @@ def choose_common_chain(ex1, ex2, coin, exclude_chains, include_all_chains):
             return "❌ No chain", "❌", "❌"
 
         exclude_norm = {normalize_chain(c) for c in exclude_chains} if not include_all_chains else set()
-
         preferred_norm = [normalize_chain(n) for n in LOW_FEE_CHAIN_PRIORITY if normalize_chain(n) not in exclude_norm]
 
-        best_norm = None
-        for pnorm in preferred_norm:
-            if pnorm in common_norm:
-                best_norm = pnorm
-                break
-
+        best_norm = next((p for p in preferred_norm if p in common_norm), None)
         if not best_norm:
             candidates = [c for c in common_norm if c not in exclude_norm]
-            if not candidates:
-                return "❌ No chain", "❌", "❌"
+            if not candidates: return "❌ No chain", "❌", "❌"
             best_norm = sorted(candidates)[0]
 
-        # Get original info
         orig_key1, info1 = nets1_norm[best_norm]
         orig_key2, info2 = nets2_norm[best_norm]
-
         w_ok = "✅" if info1.get("withdraw") else "❌"
         d_ok = "✅" if info2.get("deposit") else "❌"
-
-        display_chain = best_norm  # normalized is fine for display
-        return display_chain, w_ok, d_ok
+        return best_norm, w_ok, d_ok
     except:
         return "❌ Unknown", "❌", "❌"
 
-def fetch_tickers_safe(ex, ex_name):
+def fetch_tickers_safe(ex, name):
     for attempt in range(3):
         try:
             return ex.fetch_tickers()
         except Exception as e:
             if attempt == 2:
-                st.warning(f"⚠️ {ex_name} fetch_tickers failed after 3 tries: {e}")
                 return {}
             time.sleep((2 ** attempt) * 1.5)
     return {}
 
-# ---------- Core Scan ----------
-def run_scan():
-    if not buy_exchanges or not sell_exchanges:
-        st.warning("Please select at least one Buy and one Sell exchange.")
-        return
+# ====================== CORE SCAN ======================
+def run_scan(settings, logger):
+    buy = settings.get("buy_exchanges", [])
+    sell = settings.get("sell_exchanges", [])
+    min_p = settings.get("min_profit", 1.0)
+    max_p = settings.get("max_profit", 20.0)
+    min_vol = settings.get("min_24h_vol_usd", 100000.0)
+    exclude = settings.get("exclude_chains", ["ETH"])
+    include_all = settings.get("include_all_chains", False)
 
-    try:
-        # 1) init exchanges
-        ex_objs = {}
-        for ex_id in set(buy_exchanges + sell_exchanges):
-            opts = {"enableRateLimit": True, "timeout": 15000}
-            opts.update(EXTRA_OPTS.get(ex_id, {}))
-            ex = getattr(ccxt, ex_id)(opts)
-            ex.load_markets()
-            ex_objs[ex_id] = ex
+    logger("🚀 Starting scan")
+    logger(f"Buy: {buy} | Sell: {sell}")
 
-        # 2) bulk tickers with retry
-        bulk_tickers = {}
-        for ex_id, ex in ex_objs.items():
-            bulk_tickers[ex_id] = fetch_tickers_safe(ex, EXCHANGE_NAMES.get(ex_id, ex_id))
+    if not buy or not sell:
+        logger("❌ Need at least one buy & sell exchange")
+        return []
 
-        results = []
-        current_keys = []
+    # Load exchanges
+    ex_objs = {}
+    for ex_id in set(buy + sell):
+        opts = {"enableRateLimit": True, "timeout": 15000}
+        opts.update(EXTRA_OPTS.get(ex_id, {}))
+        ex = getattr(ccxt, ex_id)(opts)
+        ex.load_markets()
+        ex_objs[ex_id] = ex
+        logger(f"✓ Loaded markets → {EXCHANGE_NAMES.get(ex_id, ex_id)}")
 
-        # 3) compare
-        for buy_id in buy_exchanges:
-            for sell_id in sell_exchanges:
-                if buy_id == sell_id:
+    # Fetch tickers
+    bulk = {}
+    for ex_id, ex in ex_objs.items():
+        bulk[ex_id] = fetch_tickers_safe(ex, EXCHANGE_NAMES.get(ex_id, ex_id))
+        logger(f"✓ Fetched tickers → {EXCHANGE_NAMES.get(ex_id, ex_id)}")
+
+    results = []
+    current_keys = []
+
+    for b_id in buy:
+        for s_id in sell:
+            if b_id == s_id: continue
+            b_ex = ex_objs[b_id]
+            s_ex = ex_objs[s_id]
+            b_tk = bulk[b_id]
+            s_tk = bulk[s_id]
+
+            common = set(b_ex.markets) & set(s_ex.markets)
+            symbols = [s for s in common if symbol_ok(b_ex, s) and symbol_ok(s_ex, s)]
+
+            # Sort by liquidity
+            def vol_score(sym):
+                bt = b_tk.get(sym)
+                st_ = s_tk.get(sym)
+                pb = market_price_from_ticker(bt) or 0
+                ps = market_price_from_ticker(st_) or 0
+                return safe_usd_volume(b_id, sym, bt, pb, b_tk) + safe_usd_volume(s_id, sym, st_, ps, s_tk)
+            symbols.sort(key=vol_score, reverse=True)
+            symbols = symbols[:1000]
+
+            for sym in symbols:
+                bt = b_tk.get(sym)
+                st_ = s_tk.get(sym)
+                if not bt or not st_ or not is_ticker_fresh(bt) or not is_ticker_fresh(st_):
                     continue
-                buy_ex = ex_objs[buy_id]
-                sell_ex = ex_objs[sell_id]
-                buy_tk = bulk_tickers[buy_id]
-                sell_tk = bulk_tickers[sell_id]
 
-                common = set(buy_ex.markets.keys()) & set(sell_ex.markets.keys())
-                symbols = [s for s in common if symbol_ok(buy_ex, s) and symbol_ok(sell_ex, s)]
+                bp = market_price_from_ticker(bt)
+                sp = market_price_from_ticker(st_)
+                if not bp or not sp: continue
 
-                # Sort by combined volume (best liquidity first)
-                def combined_vol(sym):
-                    bt = buy_tk.get(sym)
-                    st_ = sell_tk.get(sym)
-                    px_b = market_price_from_ticker(bt) or 0
-                    px_s = market_price_from_ticker(st_) or 0
-                    v1 = safe_usd_volume(buy_id, sym, bt, px_b, buy_tk)
-                    v2 = safe_usd_volume(sell_id, sym, st_, px_s, sell_tk)
-                    return v1 + v2
+                if abs(sp - bp) / bp > 0.5: continue
 
-                symbols.sort(key=combined_vol, reverse=True)
-                symbols = symbols[:1000]  # generous but safe
+                b_fee = b_ex.markets.get(sym, {}).get("taker", 0.001)
+                s_fee = s_ex.markets.get(sym, {}).get("taker", 0.001)
 
-                for sym in symbols:
-                    bt = buy_tk.get(sym)
-                    st_ = sell_tk.get(sym)
-                    if not bt or not st_:
-                        continue
-                    if not is_ticker_fresh(bt) or not is_ticker_fresh(st_):
-                        continue
+                spread = (sp - bp) / bp * 100
+                profit = spread - (b_fee * 100 + s_fee * 100)
+                if profit < min_p or profit > max_p: continue
 
-                    buy_px = market_price_from_ticker(bt)
-                    sell_px = market_price_from_ticker(st_)
-                    if not buy_px or not sell_px:
-                        continue
+                b_vol = safe_usd_volume(b_id, sym, bt, bp, b_tk)
+                s_vol = safe_usd_volume(s_id, sym, st_, sp, s_tk)
+                if b_vol < min_vol or s_vol < min_vol: continue
 
-                    gap = abs(sell_px - buy_px) / buy_px
-                    if gap > 0.5:
-                        continue
+                base, quote = parse_symbol(sym)
+                chain, w_ok, d_ok = choose_common_chain(b_ex, s_ex, base, exclude, include_all)
+                if not include_all and (chain.startswith("❌") or normalize_chain(chain) in {normalize_chain(c) for c in exclude}):
+                    continue
+                if w_ok != "✅" or d_ok != "✅": continue
 
-                    buy_fee = buy_ex.markets.get(sym, {}).get("taker", 0.001) or 0.001
-                    sell_fee = sell_ex.markets.get(sym, {}).get("taker", 0.001) or 0.001
+                key = f"{sym}|{b_id}>{s_id}"
+                current_keys.append(key)
+                obs, exp = stability_and_expiry(key, profit)
 
-                    spread = (sell_px - buy_px) / buy_px * 100.0
-                    profit_after = spread - (buy_fee * 100 + sell_fee * 100)
-                    if profit_after < min_profit or profit_after > max_profit:
-                        continue
+                results.append({
+                    "Pair": sym,
+                    "Quote": quote,
+                    "Buy@": EXCHANGE_NAMES.get(b_id, b_id),
+                    "Buy Price": round(bp, 10),
+                    "Sell@": EXCHANGE_NAMES.get(s_id, s_id),
+                    "Sell Price": round(sp, 10),
+                    "Spread %": round(spread, 4),
+                    "Profit % After Fees": round(profit, 4),
+                    "Buy Vol (24h)": fmt_usd(b_vol),
+                    "Sell Vol (24h)": fmt_usd(s_vol),
+                    "Withdraw?": w_ok,
+                    "Deposit?": d_ok,
+                    "Blockchain": chain,
+                    "Stability": obs,
+                    "Est. Expiry": exp,
+                })
 
-                    buy_vol_usd = safe_usd_volume(buy_id, sym, bt, buy_px, buy_tk)
-                    sell_vol_usd = safe_usd_volume(sell_id, sym, st_, sell_px, sell_tk)
-                    if buy_vol_usd < min_24h_vol_usd or sell_vol_usd < min_24h_vol_usd:
-                        continue
+    update_lifetime_for_disappeared(current_keys)
+    logger(f"✅ Scan finished — {len(results)} opportunities")
+    return results
 
-                    base, quote = parse_symbol(sym)
-                    chain, w_ok, d_ok = choose_common_chain(
-                        buy_ex, sell_ex, base, exclude_chains, include_all_chains
-                    )
+# ====================== HTML + TAILWIND ======================
+HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cross-Exchange Arbitrage Scanner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+    body { background: #0a0a0a; color: #e5e5e5; font-family: system-ui, sans-serif; }
+    .card { background: #111; border: 1px solid #222; }
+    .pill { padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; }
+    .pill-green { background: #1b5e20; color: #c8e6c9; }
+    .pill-red { background: #7f1d1d; color: #fee2e2; }
+    .pill-blue { background: #0d47a1; color: #e3f2fd; }
+    table { border-collapse: collapse; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #222; }
+    th { background: #1a1a1a; }
+    tr:hover { background: #1f1f1f; }
+    .log { font-family: monospace; font-size: 13px; line-height: 1.4; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body class="min-h-screen p-6">
+<div class="max-w-screen-2xl mx-auto">
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-4xl font-bold tracking-tight flex items-center gap-3">
+                <span class="text-emerald-400">🌍</span> Cross-Exchange Arbitrage Scanner
+            </h1>
+            <p class="text-zinc-500 mt-1">Real-time • Multi-exchange • Withdrawn-enabled only</p>
+        </div>
+        <div class="flex items-center gap-6 text-sm">
+            <div id="status" class="flex items-center gap-2">
+                <div class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                <span class="text-emerald-400">Ready</span>
+            </div>
+            <button onclick="toggleAutoRefresh()" id="autoBtn"
+                class="px-5 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl flex items-center gap-2 transition">
+                <i class="fas fa-sync"></i>
+                <span id="autoText">Auto-refresh: OFF</span>
+            </button>
+        </div>
+    </div>
 
-                    if not include_all_chains and (chain.startswith("❌") or normalize_chain(chain) in {normalize_chain(c) for c in exclude_chains}):
-                        continue
-                    if w_ok != "✅" or d_ok != "✅":
-                        continue
+    <!-- CONTROLS -->
+    <div class="card rounded-3xl p-8 mb-8">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <!-- Buy / Sell -->
+            <div>
+                <label class="block text-zinc-400 text-sm mb-2">Buy Exchanges (max 10)</label>
+                <select id="buy" multiple class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl p-4 h-48 focus:outline-none focus:border-emerald-500">
+                    <!-- populated by JS -->
+                </select>
+            </div>
+            <div>
+                <label class="block text-zinc-400 text-sm mb-2">Sell Exchanges (max 10)</label>
+                <select id="sell" multiple class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl p-4 h-48 focus:outline-none focus:border-emerald-500">
+                    <!-- populated by JS -->
+                </select>
+            </div>
 
-                    key = f"{sym}|{buy_id}>{sell_id}"
-                    current_keys.append(key)
-                    observed, expiry = stability_and_expiry(key, profit_after)
+            <!-- Filters -->
+            <div class="grid grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-zinc-400 text-sm mb-1">Min Profit %</label>
+                    <input id="minProfit" type="number" step="0.1" value="1.0" class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-zinc-400 text-sm mb-1">Max Profit %</label>
+                    <input id="maxProfit" type="number" step="0.1" value="20.0" class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-zinc-400 text-sm mb-1">Min 24h Vol (USD)</label>
+                    <input id="minVol" type="number" value="100000" class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-zinc-400 text-sm mb-2">Exclude Chains</label>
+                    <select id="excludeChains" multiple class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl p-4 h-28">
+                        <option value="ETH">ETH</option>
+                        <option value="TRC20">TRC20</option>
+                        <option value="BSC">BSC</option>
+                        <option value="SOL">SOL</option>
+                        <option value="MATIC">MATIC</option>
+                        <option value="ARB">ARB</option>
+                        <option value="OP">OP</option>
+                        <option value="TON">TON</option>
+                        <option value="AVAX">AVAX</option>
+                    </select>
+                    <label class="flex items-center gap-2 mt-3 text-sm">
+                        <input id="includeAll" type="checkbox" class="w-4 h-4 accent-emerald-400">
+                        <span class="text-zinc-400">Include all chains</span>
+                    </label>
+                </div>
+            </div>
+        </div>
 
-                    results.append({
-                        "#": None,
-                        "Pair": sym,
-                        "Quote": quote,
-                        "Buy@": EXCHANGE_NAMES.get(buy_id, buy_id),
-                        "Buy Price": round(float(buy_px), 10),
-                        "Sell@": EXCHANGE_NAMES.get(sell_id, sell_id),
-                        "Sell Price": round(float(sell_px), 10),
-                        "Spread %": round(spread, 4),
-                        "Profit % After Fees": round(profit_after, 4),
-                        "Buy Vol (24h)": fmt_usd(buy_vol_usd),
-                        "Sell Vol (24h)": fmt_usd(sell_vol_usd),
-                        "Withdraw?": w_ok,
-                        "Deposit?": d_ok,
-                        "Blockchain": chain,
-                        "Stability": observed,
-                        "Est. Expiry": expiry,
-                    })
+        <div class="flex gap-4 mt-10">
+            <button onclick="startScan()" 
+                class="flex-1 bg-emerald-500 hover:bg-emerald-600 transition py-4 rounded-3xl font-semibold text-lg flex items-center justify-center gap-3">
+                <i class="fas fa-bolt"></i> SCAN NOW
+            </button>
+            <button onclick="downloadCSV()" 
+                class="px-8 bg-zinc-800 hover:bg-zinc-700 transition rounded-3xl flex items-center gap-2">
+                <i class="fas fa-download"></i> CSV
+            </button>
+        </div>
+    </div>
 
-        update_lifetime_for_disappeared(current_keys)
+    <!-- LOG + RESULTS -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <!-- Log -->
+        <div class="lg:col-span-4">
+            <div class="card rounded-3xl p-6 h-full flex flex-col">
+                <div class="flex justify-between mb-4">
+                    <div class="uppercase text-xs tracking-widest text-zinc-500">Live Log</div>
+                    <button onclick="clearLog()" class="text-zinc-500 hover:text-white text-xs">CLEAR</button>
+                </div>
+                <div id="log" class="log flex-1 overflow-auto bg-black/50 p-5 rounded-2xl text-emerald-300 whitespace-pre-wrap"></div>
+            </div>
+        </div>
 
-        if results:
-            df = pd.DataFrame(results).sort_values(
-                ["Profit % After Fees", "Spread %"], ascending=False
-            ).reset_index(drop=True)
-            df["#"] = range(1, len(df) + 1)
+        <!-- Table -->
+        <div class="lg:col-span-8">
+            <div class="card rounded-3xl overflow-hidden">
+                <div class="px-8 py-5 border-b border-zinc-800 flex justify-between items-center">
+                    <div class="font-semibold">Opportunities <span id="count" class="text-emerald-400">(0)</span></div>
+                    <div id="lastScan" class="text-xs text-zinc-500">Last scan: never</div>
+                </div>
+                <div class="overflow-auto max-h-[70vh]" id="tableContainer">
+                    <!-- Table injected by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
-            def pill(val, ok=True):
-                return f'<span class="pill {"pill-green" if ok else "pill-red"}">{val}</span>'
+<script>
+let autoRefresh = false;
+let autoInterval = null;
+let lastResults = [];
 
-            def color_profit(p):
-                return f'<span class="good mono">{p:.4f}%</span>' if p >= 0 else f'<span class="bad mono">{p:.4f}%</span>'
+const exchanges = {{ TOP_EXCHANGES | tojson }};
+const names = {{ EXCHANGE_NAMES | tojson }};
 
-            def color_spread(s):
-                return f'<span class="spread mono">{s:.4f}%</span>'
+function populateSelects() {
+    const buySel = document.getElementById('buy');
+    const sellSel = document.getElementById('sell');
+    exchanges.forEach(ex => {
+        const opt1 = document.createElement('option');
+        opt1.value = ex;
+        opt1.textContent = names[ex] || ex;
+        buySel.appendChild(opt1);
 
-            headers = ["#", "Pair", "Quote", "Buy@", "Buy Price", "Sell@", "Sell Price",
-                       "Spread %", "Profit % After Fees", "Buy Vol (24h)", "Sell Vol (24h)",
-                       "Withdraw?", "Deposit?", "Blockchain", "Stability", "Est. Expiry"]
+        const opt2 = opt1.cloneNode(true);
+        sellSel.appendChild(opt2);
+    });
+}
 
-            html = '<div class="table-wrap"><table class="arb-table"><thead><tr>'
-            for h in headers:
-                html += f"<th>{h}</th>"
-            html += "</tr></thead><tbody>"
+function getSettings() {
+    return {
+        buy_exchanges: Array.from(document.getElementById('buy').selectedOptions).map(o => o.value),
+        sell_exchanges: Array.from(document.getElementById('sell').selectedOptions).map(o => o.value),
+        min_profit: parseFloat(document.getElementById('minProfit').value),
+        max_profit: parseFloat(document.getElementById('maxProfit').value),
+        min_24h_vol_usd: parseFloat(document.getElementById('minVol').value),
+        exclude_chains: Array.from(document.getElementById('excludeChains').selectedOptions).map(o => o.value),
+        include_all_chains: document.getElementById('includeAll').checked
+    };
+}
 
-            for _, r in df.iterrows():
-                html += "<tr>"
-                html += f'<td class="num mono">{int(r["#"])}</td>'
-                html += f'<td class="mono">{r["Pair"]}</td>'
-                html += f'<td>{r["Quote"]}</td>'
-                html += f'<td>{r["Buy@"]}</td>'
-                html += f'<td class="num mono">{r["Buy Price"]}</td>'
-                html += f'<td>{r["Sell@"]}</td>'
-                html += f'<td class="num mono">{r["Sell Price"]}</td>'
-                html += f'<td class="num">{color_spread(r["Spread %"])}</td>'
-                html += f'<td class="num">{color_profit(r["Profit % After Fees"])}</td>'
-                html += f'<td class="num mono">{r["Buy Vol (24h)"]}</td>'
-                html += f'<td class="num mono">{r["Sell Vol (24h)"]}</td>'
-                html += f'<td>{pill("✅", True) if r["Withdraw?"]=="✅" else pill("❌", False)}</td>'
-                html += f'<td>{pill("✅", True) if r["Deposit?"]=="✅" else pill("❌", False)}</td>'
-                html += f'<td><span class="pill pill-blue">{r["Blockchain"]}</span></td>'
-                html += f'<td class="small">{r["Stability"]}</td>'
-                html += f'<td class="small">{r["Est. Expiry"]}</td>'
-                html += "</tr>"
+function log(msg) {
+    const logEl = document.getElementById('log');
+    const ts = new Date().toLocaleTimeString('en-US', {hour12:false});
+    logEl.innerHTML += `<span class="text-zinc-500">[${ts}]</span> ${msg}<br>`;
+    logEl.scrollTop = logEl.scrollHeight;
+}
 
-            html += "</tbody></table></div>"
+function clearLog() {
+    document.getElementById('log').innerHTML = '';
+}
 
-            st.subheader("✅ Profitable Arbitrage Opportunities")
-            st.markdown(html, unsafe_allow_html=True)
+function renderTable(results) {
+    lastResults = results;
+    document.getElementById('count').textContent = `(${results.length})`;
 
-            csv_df = df.copy()
-            st.download_button("⬇️ Download CSV", csv_df.to_csv(index=False), "arbitrage_opportunities.csv", "text/csv")
-        else:
-            st.info("No opportunities matched your filters right now.")
+    let html = `
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="bg-zinc-900 text-zinc-400">
+                    <th class="px-8 py-4 text-left">#</th>
+                    <th class="px-8 py-4 text-left">Pair</th>
+                    <th class="px-4 py-4">Quote</th>
+                    <th class="px-8 py-4">Buy@</th>
+                    <th class="px-8 py-4 text-right">Buy Price</th>
+                    <th class="px-8 py-4">Sell@</th>
+                    <th class="px-8 py-4 text-right">Sell Price</th>
+                    <th class="px-8 py-4 text-right">Spread %</th>
+                    <th class="px-8 py-4 text-right">Profit %</th>
+                    <th class="px-8 py-4 text-right">Buy Vol</th>
+                    <th class="px-8 py-4 text-right">Sell Vol</th>
+                    <th class="px-6 py-4">WD</th>
+                    <th class="px-6 py-4">DP</th>
+                    <th class="px-8 py-4">Chain</th>
+                    <th class="px-8 py-4">Stability</th>
+                    <th class="px-8 py-4">Expiry</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-zinc-800">
+    `;
 
-    except Exception as e:
-        st.error(f"Unexpected error: {e}")
+    results.forEach((r, i) => {
+        const profitClass = r["Profit % After Fees"] >= 0 ? "text-emerald-400" : "text-red-400";
+        html += `
+            <tr class="hover:bg-zinc-900/70 transition">
+                <td class="px-8 py-5 font-mono text-zinc-500">${i+1}</td>
+                <td class="px-8 py-5 font-semibold">${r.Pair}</td>
+                <td class="px-4 py-5 text-zinc-400">${r.Quote}</td>
+                <td class="px-8 py-5">${r["Buy@"]}</td>
+                <td class="px-8 py-5 text-right font-mono">${r["Buy Price"]}</td>
+                <td class="px-8 py-5">${r["Sell@"]}</td>
+                <td class="px-8 py-5 text-right font-mono">${r["Sell Price"]}</td>
+                <td class="px-8 py-5 text-right font-mono text-sky-400">${r["Spread %"]}%</td>
+                <td class="px-8 py-5 text-right font-mono \( {profitClass}"> \){r["Profit % After Fees"]}%</td>
+                <td class="px-8 py-5 text-right font-mono">${r["Buy Vol (24h)"]}</td>
+                <td class="px-8 py-5 text-right font-mono">${r["Sell Vol (24h)"]}</td>
+                <td class="px-6 py-5"><span class="pill \( {r["Withdraw?"]==="✅"?"pill-green":"pill-red"}"> \){r["Withdraw?"]}</span></td>
+                <td class="px-6 py-5"><span class="pill \( {r["Deposit?"]==="✅"?"pill-green":"pill-red"}"> \){r["Deposit?"]}</span></td>
+                <td class="px-8 py-5"><span class="pill pill-blue">${r.Blockchain}</span></td>
+                <td class="px-8 py-5 text-xs text-zinc-400">${r.Stability}</td>
+                <td class="px-8 py-5 text-xs text-zinc-400">${r["Est. Expiry"]}</td>
+            </tr>
+        `;
+    });
 
-# ---------- Trigger ----------
-trigger_scan = scan_now
+    html += `</tbody></table>`;
+    document.getElementById('tableContainer').innerHTML = html;
+}
 
-if auto_refresh:
-    if time.time() - st.session_state.last_auto_scan >= 20:
-        st.session_state.last_auto_scan = time.time()
-        trigger_scan = True
+function downloadCSV() {
+    if (!lastResults.length) return;
+    const headers = Object.keys(lastResults[0]).join(",");
+    const rows = lastResults.map(r => Object.values(r).join(",")).join("\n");
+    const csv = headers + "\n" + rows;
+    const blob = new Blob([csv], {type: "text/csv"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "arbitrage_opportunities.csv";
+    a.click();
+}
 
-if trigger_scan:
-    with st.spinner("🔍 Scanning exchanges…"):
-        run_scan()
+async function startScan() {
+    const settings = getSettings();
+    log("🔍 Starting scan...");
+    document.getElementById('status').innerHTML = `<div class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></div><span class="text-amber-400">Scanning...</span>`;
 
-if auto_refresh:
-    remaining = max(0, 20 - (time.time() - st.session_state.last_auto_scan))
-    st.caption(f"🔄 Next auto-refresh in {int(remaining)} seconds")
+    try {
+        const res = await fetch("/api/scan", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(settings)
+        });
+        const data = await res.json();
+
+        data.logs.forEach(l => log(l));
+        renderTable(data.results);
+
+        document.getElementById('lastScan').textContent = `Last scan: ${new Date().toLocaleTimeString()}`;
+        document.getElementById('status').innerHTML = `<div class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div><span class="text-emerald-400">Idle</span>`;
+    } catch(e) {
+        log("❌ Scan failed: " + e.message);
+    }
+}
+
+function toggleAutoRefresh() {
+    autoRefresh = !autoRefresh;
+    const btn = document.getElementById('autoBtn');
+    if (autoRefresh) {
+        btn.classList.add("bg-emerald-600", "text-white");
+        document.getElementById('autoText').textContent = "Auto-refresh: ON";
+        autoInterval = setInterval(startScan, 20000);
+        log("🔄 Auto-refresh enabled (every 20s)");
+        startScan();
+    } else {
+        btn.classList.remove("bg-emerald-600", "text-white");
+        document.getElementById('autoText').textContent = "Auto-refresh: OFF";
+        clearInterval(autoInterval);
+        log("⏹️ Auto-refresh disabled");
+    }
+}
+
+// Init
+window.onload = () => {
+    populateSelects();
+    // Load saved defaults if you want (localStorage)
+    log("👋 Scanner ready. Click SCAN NOW to begin.");
+};
+</script>
+</body>
+</html>
+"""
+
+# ====================== FLASK ROUTES ======================
+@app.route('/')
+def index():
+    return render_template_string(HTML, TOP_EXCHANGES=TOP_EXCHANGES, EXCHANGE_NAMES=EXCHANGE_NAMES)
+
+@app.route('/api/scan', methods=['POST'])
+def api_scan():
+    settings = request.get_json() or {}
+    logs = []
+
+    def logger(msg):
+        ts = time.strftime("%H:%M:%S")
+        line = f"[{ts}] {msg}"
+        print(line)                     # Render Logs
+        logs.append(line)
+
+    results = run_scan(settings, logger)
+    save_settings(settings)
+    return jsonify({"results": results, "logs": logs})
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
