@@ -355,11 +355,13 @@ def run_scan(settings, logger):
     logger(f"✅ Scan finished — {len(results)} opportunities")
     return results
 
-# ====================== HTML — EXACT STREAMLIT MATCH ======================
+# ====================== HTML TEMPLATE ======================
+HTML = r"""
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cross-Exchange Arbitrage Scanner</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -630,10 +632,6 @@ def run_scan(settings, logger):
         display: flex;
         align-items: center;
         gap: 8px;
-    }
-    
-    .glow-effect {
-        box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
     }
     
     .mono-font {
@@ -960,6 +958,11 @@ async function startScan() {
         return;
     }
     
+    if (!settings.buy_exchanges.length || !settings.sell_exchanges.length) {
+        log("❌ Error: Please select at least one buy and one sell exchange");
+        return;
+    }
+    
     if (settings.buy_exchanges.length > 10 || settings.sell_exchanges.length > 10) {
         log("❌ Error: Maximum 10 exchanges per side");
         return;
@@ -1022,7 +1025,7 @@ function downloadCSV() {
                     : value;
             }).join(',')
         )
-    ].join('\n');
+    ].join('\\n');
     
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -1044,7 +1047,7 @@ window.onload = () => {
 
 </body>
 </html>
-        
+"""
 
 # ====================== ROUTES ======================
 @app.route('/')
