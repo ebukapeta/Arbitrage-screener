@@ -30,8 +30,8 @@ TOP_EXCHANGES = [
     "binance", "okx", "coinbase", "kraken", "bybit", "kucoin",
     "mexc", "bitfinex", "bitget", "gateio", "crypto_com",
     "upbit", "whitebit", "poloniex", "bingx", "lbank",
-    "bitstamp", "gemini", "bitrue", "xt", "huobi", "bitmart"
-]
+    "bitstamp", "gemini", "bitrue", "xt", "huobi"
+]  # bitmart removed - causes ccxt crash on Render free
 
 EXCHANGE_NAMES = {
     "binance": "Binance", "okx": "OKX", "coinbase": "Coinbase",
@@ -40,7 +40,7 @@ EXCHANGE_NAMES = {
     "gateio": "Gate.io", "crypto_com": "Crypto.com", "upbit": "Upbit",
     "whitebit": "WhiteBIT", "poloniex": "Poloniex", "bingx": "BingX",
     "lbank": "LBank", "bitstamp": "Bitstamp", "gemini": "Gemini",
-    "bitrue": "Bitrue", "xt": "XT", "huobi": "Huobi", "bitmart": "BitMart"
+    "bitrue": "Bitrue", "xt": "XT", "huobi": "Huobi"
 }
 
 EXTRA_OPTS = {
@@ -75,7 +75,7 @@ op_cache = {}
 lifetime_history = {}
 last_seen_keys = set()
 
-# ====================== HELPERS ======================
+# ====================== HELPERS (unchanged) ======================
 def parse_symbol(symbol: str):
     base, quote = symbol.split("/")[0], symbol.split("/")[1].split(":")[0]
     return base, quote
@@ -125,18 +125,18 @@ def stability_and_expiry(key, current_profit):
     trail = op_cache.get(key, [])
     if not trail:
         op_cache[key] = [(now, current_profit)]
-        return "⏳ new", "~unknown"
+        return "⏳ new", "\~unknown"
     trail.append((now, current_profit))
     op_cache[key] = trail[-30:]
     duration = trail[-1][0] - trail[0][0]
     observed = f"⏳ {secs_to_label(duration)} observed"
     hist = lifetime_history.get(key, [])
     if not hist:
-        expiry = "~unknown"
+        expiry = "\~unknown"
     else:
         avg = sum(hist) / len(hist)
         remaining = avg - duration
-        expiry = "⚠️ past avg" if remaining <= 0 else f"~{secs_to_label(remaining)} left"
+        expiry = "⚠️ past avg" if remaining <= 0 else f"\~{secs_to_label(remaining)} left"
     return observed, expiry
 
 INFO_VOLUME_CANDIDATES = [
@@ -237,7 +237,7 @@ def fetch_tickers_safe(ex, name):
             time.sleep((2 ** attempt) * 1.5)
     return {}
 
-# ====================== CORE SCAN ======================
+# ====================== CORE SCAN (with safe loading) ======================
 def run_scan(settings, logger):
     buy = settings.get("buy_exchanges", [])
     sell = settings.get("sell_exchanges", [])
@@ -254,21 +254,27 @@ def run_scan(settings, logger):
         logger("❌ Need at least one buy & sell exchange")
         return []
 
-    # Load exchanges
     ex_objs = {}
     for ex_id in set(buy + sell):
-        opts = {"enableRateLimit": True, "timeout": 15000}
-        opts.update(EXTRA_OPTS.get(ex_id, {}))
-        ex = getattr(ccxt, ex_id)(opts)
-        ex.load_markets()
-        ex_objs[ex_id] = ex
-        logger(f"✓ Loaded markets → {EXCHANGE_NAMES.get(ex_id, ex_id)}")
+        try:
+            opts = {"enableRateLimit": True, "timeout": 15000}
+            opts.update(EXTRA_OPTS.get(ex_id, {}))
+            ex = getattr(ccxt, ex_id)(opts)
+            ex.load_markets()
+            ex_objs[ex_id] = ex
+            logger(f"✓ Loaded markets → {EXCHANGE_NAMES.get(ex_id, ex_id)}")
+        except Exception as e:
+            logger(f"⚠️ Skipped {EXCHANGE_NAMES.get(ex_id, ex_id)} (load failed)")
+            continue
 
-    # Fetch tickers
     bulk = {}
     for ex_id, ex in ex_objs.items():
-        bulk[ex_id] = fetch_tickers_safe(ex, EXCHANGE_NAMES.get(ex_id, ex_id))
-        logger(f"✓ Fetched tickers → {EXCHANGE_NAMES.get(ex_id, ex_id)}")
+        try:
+            bulk[ex_id] = fetch_tickers_safe(ex, EXCHANGE_NAMES.get(ex_id, ex_id))
+            logger(f"✓ Fetched tickers → {EXCHANGE_NAMES.get(ex_id, ex_id)}")
+        except Exception as e:
+            logger(f"⚠️ Skipped tickers for {EXCHANGE_NAMES.get(ex_id, ex_id)}")
+            continue
 
     results = []
     current_keys = []
@@ -276,15 +282,15 @@ def run_scan(settings, logger):
     for b_id in buy:
         for s_id in sell:
             if b_id == s_id: continue
+            if b_id not in ex_objs or s_id not in ex_objs: continue
             b_ex = ex_objs[b_id]
             s_ex = ex_objs[s_id]
-            b_tk = bulk[b_id]
-            s_tk = bulk[s_id]
+            b_tk = bulk.get(b_id, {})
+            s_tk = bulk.get(s_id, {})
 
             common = set(b_ex.markets) & set(s_ex.markets)
             symbols = [s for s in common if symbol_ok(b_ex, s) and symbol_ok(s_ex, s)]
 
-            # Sort by liquidity
             def vol_score(sym):
                 bt = b_tk.get(sym)
                 st_ = s_tk.get(sym)
@@ -349,7 +355,7 @@ def run_scan(settings, logger):
     logger(f"✅ Scan finished — {len(results)} opportunities")
     return results
 
-# ====================== HTML — EXACT STREAMLIT LOOK ======================
+# ====================== HTML — EXACT STREAMLIT MATCH ======================
 HTML = """
 <!DOCTYPE html>
 <html>
@@ -358,11 +364,11 @@ HTML = """
 <title>Cross-Exchange Arbitrage Scanner</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-    body { background:#111111; color:#E0E0E0; font-family:system-ui; }
+    body { background:#111111; color:#E0E0E0; font-family:system-ui,sans-serif; }
     .card { background:#1A1A1A; border:1px solid #222; border-radius:12px; }
     select { background:#222; border:1px solid #333; color:#EEE; }
     table { width:100%; border-collapse:collapse; }
-    th { background:#222; color:#EEE; font-weight:600; padding:10px; text-align:left; }
+    th { background:#222; color:#EEE; padding:10px; text-align:left; font-weight:600; }
     td { padding:10px; border-bottom:1px solid #222; }
     tr:hover { background:#2A2A2A; }
     .pill { padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; }
@@ -370,16 +376,18 @@ HTML = """
     .pill-red { background:#7F1D1D; color:#FEE2E2; }
     .pill-blue { background:#0D47A1; color:#E3F2FD; }
     .mono { font-family:ui-monospace, monospace; }
-    .good { color:#4CAF50; }
-    .bad { color:#FF5252; }
-    .spread { color:#42A5F5; }
+    .good { color:#4CAF50; font-weight:700; }
+    .bad { color:#FF5252; font-weight:700; }
+    .spread { color:#42A5F5; font-weight:700; }
+    .num { text-align:right; white-space:nowrap; }
+    .small { color:#BDBDBD; font-size:12px; }
 </style>
 </head>
 <body class="p-8">
 
 <h1 class="text-3xl font-bold mb-8 flex items-center gap-3"><span class="text-emerald-400">🌍</span> Cross-Exchange Arbitrage Scanner</h1>
 
-<div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10 card p-8">
+<div class="grid md:grid-cols-3 gap-8 mb-10 card p-8">
     <div>
         <label class="block text-sm text-zinc-400 mb-2">Buy Exchanges (max 10)</label>
         <select id="buy" multiple size="10" class="w-full h-64 rounded-xl p-3"></select>
@@ -393,7 +401,7 @@ HTML = """
             <div><label class="text-sm text-zinc-400">Min Profit %</label><input id="minProfit" type="number" step="0.1" value="1.0" class="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3"></div>
             <div><label class="text-sm text-zinc-400">Max Profit %</label><input id="maxProfit" type="number" step="0.1" value="20.0" class="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3"></div>
         </div>
-        <div><label class="text-sm text-zinc-400">Min 24h Vol USD</label><input id="minVol" type="number" value="100000" class="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3"></div>
+        <div><label class="text-sm text-zinc-400">Min 24h Vol (USD)</label><input id="minVol" type="number" value="100000" class="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3"></div>
         <div>
             <label class="text-sm text-zinc-400 mb-2 block">Exclude Chains</label>
             <select id="exclude" multiple size="6" class="w-full rounded-xl p-3">
@@ -407,14 +415,14 @@ HTML = """
 </div>
 
 <div class="flex gap-6 mb-10">
-    <button onclick="startScan()" class="flex-1 bg-blue-600 hover:bg-blue-700 py-4 rounded-2xl text-lg font-semibold">🚀 SCAN NOW</button>
-    <button onclick="downloadCSV()" class="px-12 bg-zinc-800 hover:bg-zinc-700 rounded-2xl">⬇️ CSV</button>
+    <button onclick="startScan()" class="flex-1 bg-[#1976D2] hover:bg-[#1565C0] py-4 rounded-2xl text-lg font-semibold">🚀 SCAN NOW</button>
+    <button onclick="downloadCSV()" class="px-12 bg-[#222] hover:bg-[#333] rounded-2xl">⬇️ CSV</button>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+<div class="grid lg:grid-cols-12 gap-8">
     <div class="lg:col-span-4 card p-6 flex flex-col">
         <div class="uppercase text-xs tracking-widest text-emerald-400 mb-4">Live Log</div>
-        <div id="log" class="flex-1 overflow-auto font-mono text-sm bg-black/60 p-5 rounded-xl text-emerald-200"></div>
+        <div id="log" class="flex-1 overflow-auto font-mono text-sm bg-black/60 p-5 rounded-xl text-emerald-300"></div>
     </div>
     <div class="lg:col-span-8 card overflow-hidden">
         <div class="px-8 py-5 border-b border-zinc-800 bg-zinc-950 flex justify-between">
@@ -439,7 +447,6 @@ function populateSelects() {
         buy.appendChild(opt.cloneNode(true));
         sell.appendChild(opt);
     });
-    // pre-select first two
     buy.options[0].selected = true;
     sell.options[1].selected = true;
 }
@@ -453,13 +460,30 @@ function log(msg) {
 
 function renderTable(results) {
     document.getElementById('count').textContent = `(${results.length})`;
-    let html = `<table><thead><tr><th>#</th><th>Pair</th><th>Quote</th><th>Buy@</th><th class="text-right">Buy Price</th><th>Sell@</th><th class="text-right">Sell Price</th><th class="text-right">Spread %</th><th class="text-right">Profit % After Fees</th><th class="text-right">Buy Vol (24h)</th><th class="text-right">Sell Vol (24h)</th><th>Withdraw?</th><th>Deposit?</th><th>Blockchain</th><th>Stability</th><th>Est. Expiry</th></tr></thead><tbody>`;
-    results.forEach((r,i) => {
+    let html = `<table><thead><tr><th class="num">#</th><th>Pair</th><th>Quote</th><th>Buy@</th><th class="num">Buy Price</th><th>Sell@</th><th class="num">Sell Price</th><th class="num">Spread %</th><th class="num">Profit % After Fees</th><th class="num">Buy Vol (24h)</th><th class="num">Sell Vol (24h)</th><th>Withdraw?</th><th>Deposit?</th><th>Blockchain</th><th>Stability</th><th>Est. Expiry</th></tr></thead><tbody>`;
+    results.forEach((r, i) => {
         const profitClass = r["Profit % After Fees"] >= 0 ? "good" : "bad";
-        html += `<tr><td>\( {i+1}</td><td class="mono"> \){r.Pair}</td><td>\( {r.Quote}</td><td> \){r["Buy@"]}</td><td class="mono text-right">\( {r["Buy Price"]}</td><td> \){r["Sell@"]}</td><td class="mono text-right">\( {r["Sell Price"]}</td><td class="mono text-right spread"> \){r["Spread %"]}%</td><td class="mono text-right \( {profitClass}"> \){r["Profit % After Fees"]}%</td><td class="mono text-right">\( {r["Buy Vol (24h)"]}</td><td class="mono text-right"> \){r["Sell Vol (24h)"]}</td><td><span class="pill \( {r["Withdraw?"]==="✅" ? "pill-green" : "pill-red"}"> \){r["Withdraw?"]}</span></td><td><span class="pill \( {r["Deposit?"]==="✅" ? "pill-green" : "pill-red"}"> \){r["Deposit?"]}</span></td><td><span class="pill pill-blue">\( {r.Blockchain}</span></td><td class="text-xs"> \){r.Stability}</td><td class="text-xs">${r["Est. Expiry"]}</td></tr>`;
+        html += `<tr>
+            <td class="num mono">${i+1}</td>
+            <td class="mono">${r.Pair}</td>
+            <td>${r.Quote}</td>
+            <td>${r["Buy@"]}</td>
+            <td class="num mono">${r["Buy Price"]}</td>
+            <td>${r["Sell@"]}</td>
+            <td class="num mono">${r["Sell Price"]}</td>
+            <td class="num spread">${r["Spread %"]}%</td>
+            <td class="num \( {profitClass}"> \){r["Profit % After Fees"]}%</td>
+            <td class="num mono">${r["Buy Vol (24h)"]}</td>
+            <td class="num mono">${r["Sell Vol (24h)"]}</td>
+            <td><span class="pill \( {r["Withdraw?"]==="✅" ? "pill-green" : "pill-red"}"> \){r["Withdraw?"]}</span></td>
+            <td><span class="pill \( {r["Deposit?"]==="✅" ? "pill-green" : "pill-red"}"> \){r["Deposit?"]}</span></td>
+            <td><span class="pill pill-blue">${r.Blockchain}</span></td>
+            <td class="small">${r.Stability}</td>
+            <td class="small">${r["Est. Expiry"]}</td>
+        </tr>`;
     });
     html += `</tbody></table>`;
-    document.getElementById('tableContainer').innerHTML = html || `<div class="p-20 text-center text-zinc-500">No opportunities yet</div>`;
+    document.getElementById('tableContainer').innerHTML = html || `<div class="p-20 text-center text-zinc-500">No opportunities found</div>`;
 }
 
 async function startScan() {
@@ -478,7 +502,7 @@ async function startScan() {
     }
     log("🔍 Scanning exchanges...");
     try {
-        const res = await fetch("/api/scan", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(settings)});
+        const res = await fetch("/api/scan", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(settings)});
         const data = await res.json();
         data.logs.forEach(log);
         renderTable(data.results);
@@ -486,7 +510,7 @@ async function startScan() {
     } catch(e) { log("❌ " + e.message); }
 }
 
-function downloadCSV() { alert("CSV download ready in next update"); }
+function downloadCSV() { alert("CSV coming soon"); }
 
 window.onload = () => {
     populateSelects();
@@ -496,9 +520,8 @@ window.onload = () => {
 </body>
 </html>
 """
-        
 
-# ====================== FLASK ROUTES ======================
+# ====================== ROUTES ======================
 @app.route('/')
 def index():
     return render_template_string(HTML, TOP_EXCHANGES=TOP_EXCHANGES, EXCHANGE_NAMES=EXCHANGE_NAMES)
@@ -511,7 +534,7 @@ def api_scan():
     def logger(msg):
         ts = time.strftime("%H:%M:%S")
         line = f"[{ts}] {msg}"
-        print(line)                     # Render Logs
+        print(line)
         logs.append(line)
 
     results = run_scan(settings, logger)
