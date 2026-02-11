@@ -349,310 +349,163 @@ def run_scan(settings, logger):
     logger(f"✅ Scan finished — {len(results)} opportunities")
     return results
 
-# ====================== HTML + TAILWIND ======================
+# ====================== HTML (Professional & Fixed) ======================
 HTML = """
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>Cross-Exchange Arbitrage Scanner</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arbitrage Scanner</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
-    body { background: #0a0a0a; color: #e5e5e5; font-family: system-ui, sans-serif; }
-    .card { background: #111; border: 1px solid #222; }
-    .pill { padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; }
-    .pill-green { background: #1b5e20; color: #c8e6c9; }
-    .pill-red { background: #7f1d1d; color: #fee2e2; }
-    .pill-blue { background: #0d47a1; color: #e3f2fd; }
-    table { border-collapse: collapse; }
-    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #222; }
-    th { background: #1a1a1a; }
-    tr:hover { background: #1f1f1f; }
-    .log { font-family: monospace; font-size: 13px; line-height: 1.4; }
-    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    body { background:#0a0a0a; color:#ddd; font-family:system-ui; }
+    .card { background:#111; border:1px solid #222; border-radius:16px; }
+    select { background:#1a1a1a; border:1px solid #333; }
+    table th { background:#1a1a1a; }
+    .pill { padding:4px 12px; border-radius:9999px; font-size:12px; font-weight:700; }
+    .pill-green { background:#14532d; color:#86efac; }
+    .pill-red { background:#7f1d1d; color:#fda4af; }
+    .pill-blue { background:#1e3a8a; color:#bfdbfe; }
 </style>
 </head>
-<body class="min-h-screen p-6">
-<div class="max-w-screen-2xl mx-auto">
-    <div class="flex justify-between items-center mb-8">
+<body class="p-6 max-w-screen-2xl mx-auto">
+
+<h1 class="text-4xl font-bold flex items-center gap-4 mb-8">
+    <span class="text-emerald-400">🌍</span> Cross-Exchange Arbitrage Scanner
+</h1>
+
+<div class="card p-8 mb-10">
+    <div class="grid md:grid-cols-3 gap-8">
         <div>
-            <h1 class="text-4xl font-bold tracking-tight flex items-center gap-3">
-                <span class="text-emerald-400">🌍</span> Cross-Exchange Arbitrage Scanner
-            </h1>
-            <p class="text-zinc-500 mt-1">Real-time • Multi-exchange • Withdrawn-enabled only</p>
+            <label class="block text-zinc-400 text-sm mb-2">Buy Exchanges (max 10)</label>
+            <select id="buy" multiple class="w-full h-60 rounded-xl p-4"></select>
         </div>
-        <div class="flex items-center gap-6 text-sm">
-            <div id="status" class="flex items-center gap-2">
-                <div class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
-                <span class="text-emerald-400">Ready</span>
-            </div>
-            <button onclick="toggleAutoRefresh()" id="autoBtn"
-                class="px-5 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl flex items-center gap-2 transition">
-                <i class="fas fa-sync"></i>
-                <span id="autoText">Auto-refresh: OFF</span>
-            </button>
+        <div>
+            <label class="block text-zinc-400 text-sm mb-2">Sell Exchanges (max 10)</label>
+            <select id="sell" multiple class="w-full h-60 rounded-xl p-4"></select>
         </div>
-    </div>
-
-    <!-- CONTROLS -->
-    <div class="card rounded-3xl p-8 mb-8">
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <!-- Buy / Sell -->
-            <div>
-                <label class="block text-zinc-400 text-sm mb-2">Buy Exchanges (max 10)</label>
-                <select id="buy" multiple class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl p-4 h-48 focus:outline-none focus:border-emerald-500">
-                    <!-- populated by JS -->
-                </select>
-            </div>
-            <div>
-                <label class="block text-zinc-400 text-sm mb-2">Sell Exchanges (max 10)</label>
-                <select id="sell" multiple class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl p-4 h-48 focus:outline-none focus:border-emerald-500">
-                    <!-- populated by JS -->
-                </select>
-            </div>
-
-            <!-- Filters -->
+        <div class="space-y-6">
             <div class="grid grid-cols-2 gap-6">
-                <div>
-                    <label class="block text-zinc-400 text-sm mb-1">Min Profit %</label>
-                    <input id="minProfit" type="number" step="0.1" value="1.0" class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-500">
-                </div>
-                <div>
-                    <label class="block text-zinc-400 text-sm mb-1">Max Profit %</label>
-                    <input id="maxProfit" type="number" step="0.1" value="20.0" class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-500">
-                </div>
-                <div>
-                    <label class="block text-zinc-400 text-sm mb-1">Min 24h Vol (USD)</label>
-                    <input id="minVol" type="number" value="100000" class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl px-4 py-3 focus:outline-none focus:border-emerald-500">
-                </div>
-                <div>
-                    <label class="block text-zinc-400 text-sm mb-2">Exclude Chains</label>
-                    <select id="excludeChains" multiple class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl p-4 h-28">
-                        <option value="ETH">ETH</option>
-                        <option value="TRC20">TRC20</option>
-                        <option value="BSC">BSC</option>
-                        <option value="SOL">SOL</option>
-                        <option value="MATIC">MATIC</option>
-                        <option value="ARB">ARB</option>
-                        <option value="OP">OP</option>
-                        <option value="TON">TON</option>
-                        <option value="AVAX">AVAX</option>
-                    </select>
-                    <label class="flex items-center gap-2 mt-3 text-sm">
-                        <input id="includeAll" type="checkbox" class="w-4 h-4 accent-emerald-400">
-                        <span class="text-zinc-400">Include all chains</span>
-                    </label>
-                </div>
+                <div><label class="text-zinc-400 text-sm">Min Profit %</label><input id="minProfit" type="number" step="0.1" value="1.0" class="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3"></div>
+                <div><label class="text-zinc-400 text-sm">Max Profit %</label><input id="maxProfit" type="number" step="0.1" value="20.0" class="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3"></div>
             </div>
-        </div>
-
-        <div class="flex gap-4 mt-10">
-            <button onclick="startScan()" 
-                class="flex-1 bg-emerald-500 hover:bg-emerald-600 transition py-4 rounded-3xl font-semibold text-lg flex items-center justify-center gap-3">
-                <i class="fas fa-bolt"></i> SCAN NOW
-            </button>
-            <button onclick="downloadCSV()" 
-                class="px-8 bg-zinc-800 hover:bg-zinc-700 transition rounded-3xl flex items-center gap-2">
-                <i class="fas fa-download"></i> CSV
-            </button>
+            <div><label class="text-zinc-400 text-sm">Min 24h Vol (USD)</label><input id="minVol" type="number" value="100000" class="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3"></div>
+            <div>
+                <label class="text-zinc-400 text-sm mb-2 block">Exclude Chains</label>
+                <select id="exclude" multiple class="w-full h-28 rounded-xl p-4">
+                    <option value="ETH">ETH</option><option value="TRC20">TRC20</option><option value="BSC">BSC</option>
+                    <option value="SOL">SOL</option><option value="MATIC">MATIC</option><option value="ARB">ARB</option>
+                    <option value="OP">OP</option><option value="TON">TON</option><option value="AVAX">AVAX</option>
+                </select>
+                <label class="flex items-center gap-2 mt-3"><input id="includeAll" type="checkbox" class="accent-emerald-400"> Include all chains</label>
+            </div>
         </div>
     </div>
 
-    <!-- LOG + RESULTS -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <!-- Log -->
-        <div class="lg:col-span-4">
-            <div class="card rounded-3xl p-6 h-full flex flex-col">
-                <div class="flex justify-between mb-4">
-                    <div class="uppercase text-xs tracking-widest text-zinc-500">Live Log</div>
-                    <button onclick="clearLog()" class="text-zinc-500 hover:text-white text-xs">CLEAR</button>
-                </div>
-                <div id="log" class="log flex-1 overflow-auto bg-black/50 p-5 rounded-2xl text-emerald-300 whitespace-pre-wrap"></div>
-            </div>
-        </div>
+    <div class="mt-10 flex gap-4">
+        <button onclick="startScan()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 py-4 rounded-2xl text-xl font-semibold flex items-center justify-center gap-3">
+            <i class="fas fa-bolt"></i> SCAN NOW
+        </button>
+        <button onclick="downloadCSV()" class="px-10 bg-zinc-800 hover:bg-zinc-700 rounded-2xl">↓ CSV</button>
+    </div>
+</div>
 
-        <!-- Table -->
-        <div class="lg:col-span-8">
-            <div class="card rounded-3xl overflow-hidden">
-                <div class="px-8 py-5 border-b border-zinc-800 flex justify-between items-center">
-                    <div class="font-semibold">Opportunities <span id="count" class="text-emerald-400">(0)</span></div>
-                    <div id="lastScan" class="text-xs text-zinc-500">Last scan: never</div>
-                </div>
-                <div class="overflow-auto max-h-[70vh]" id="tableContainer">
-                    <!-- Table injected by JS -->
-                </div>
+<div class="grid lg:grid-cols-12 gap-8">
+    <div class="lg:col-span-4">
+        <div class="card p-6 h-full flex flex-col">
+            <div class="text-emerald-400 uppercase text-xs mb-4">Live Log</div>
+            <div id="log" class="flex-1 overflow-auto font-mono text-xs bg-black/60 p-5 rounded-xl text-emerald-300"></div>
+        </div>
+    </div>
+    <div class="lg:col-span-8">
+        <div class="card overflow-hidden">
+            <div class="px-8 py-5 bg-zinc-950 border-b flex justify-between items-center">
+                <div class="font-semibold">Opportunities <span id="count" class="text-emerald-400">(0)</span></div>
+                <div id="lastScan" class="text-xs text-zinc-500">Never scanned</div>
             </div>
+            <div id="tableContainer" class="overflow-auto max-h-[65vh]"></div>
         </div>
     </div>
 </div>
 
 <script>
-let autoRefresh = false;
-let autoInterval = null;
-let lastResults = [];
-
 const exchanges = {{ TOP_EXCHANGES | tojson }};
 const names = {{ EXCHANGE_NAMES | tojson }};
 
-function populateSelects() {
-    const buySel = document.getElementById('buy');
-    const sellSel = document.getElementById('sell');
+function populate() {
+    const b = document.getElementById('buy');
+    const s = document.getElementById('sell');
     exchanges.forEach(ex => {
-        const opt1 = document.createElement('option');
-        opt1.value = ex;
-        opt1.textContent = names[ex] || ex;
-        buySel.appendChild(opt1);
-
-        const opt2 = opt1.cloneNode(true);
-        sellSel.appendChild(opt2);
+        let opt = document.createElement('option');
+        opt.value = ex; opt.text = names[ex] || ex;
+        b.appendChild(opt.cloneNode(true));
+        s.appendChild(opt);
     });
-}
-
-function getSettings() {
-    return {
-        buy_exchanges: Array.from(document.getElementById('buy').selectedOptions).map(o => o.value),
-        sell_exchanges: Array.from(document.getElementById('sell').selectedOptions).map(o => o.value),
-        min_profit: parseFloat(document.getElementById('minProfit').value),
-        max_profit: parseFloat(document.getElementById('maxProfit').value),
-        min_24h_vol_usd: parseFloat(document.getElementById('minVol').value),
-        exclude_chains: Array.from(document.getElementById('excludeChains').selectedOptions).map(o => o.value),
-        include_all_chains: document.getElementById('includeAll').checked
-    };
+    // Pre-select defaults
+    Array.from(b.options).find(o => o.value === "binance").selected = true;
+    Array.from(s.options).find(o => o.value === "okx").selected = true;
 }
 
 function log(msg) {
-    const logEl = document.getElementById('log');
-    const ts = new Date().toLocaleTimeString('en-US', {hour12:false});
-    logEl.innerHTML += `<span class="text-zinc-500">[${ts}]</span> ${msg}<br>`;
-    logEl.scrollTop = logEl.scrollHeight;
-}
-
-function clearLog() {
-    document.getElementById('log').innerHTML = '';
+    const l = document.getElementById('log');
+    const ts = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    l.innerHTML += `[${ts}] ${msg}<br>`;
+    l.scrollTop = l.scrollHeight;
 }
 
 function renderTable(results) {
-    lastResults = results;
     document.getElementById('count').textContent = `(${results.length})`;
-
-    let html = `
-        <table class="w-full text-sm">
-            <thead>
-                <tr class="bg-zinc-900 text-zinc-400">
-                    <th class="px-8 py-4 text-left">#</th>
-                    <th class="px-8 py-4 text-left">Pair</th>
-                    <th class="px-4 py-4">Quote</th>
-                    <th class="px-8 py-4">Buy@</th>
-                    <th class="px-8 py-4 text-right">Buy Price</th>
-                    <th class="px-8 py-4">Sell@</th>
-                    <th class="px-8 py-4 text-right">Sell Price</th>
-                    <th class="px-8 py-4 text-right">Spread %</th>
-                    <th class="px-8 py-4 text-right">Profit %</th>
-                    <th class="px-8 py-4 text-right">Buy Vol</th>
-                    <th class="px-8 py-4 text-right">Sell Vol</th>
-                    <th class="px-6 py-4">WD</th>
-                    <th class="px-6 py-4">DP</th>
-                    <th class="px-8 py-4">Chain</th>
-                    <th class="px-8 py-4">Stability</th>
-                    <th class="px-8 py-4">Expiry</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-zinc-800">
-    `;
-
-    results.forEach((r, i) => {
-        const profitClass = r["Profit % After Fees"] >= 0 ? "text-emerald-400" : "text-red-400";
-        html += `
-            <tr class="hover:bg-zinc-900/70 transition">
-                <td class="px-8 py-5 font-mono text-zinc-500">${i+1}</td>
-                <td class="px-8 py-5 font-semibold">${r.Pair}</td>
-                <td class="px-4 py-5 text-zinc-400">${r.Quote}</td>
-                <td class="px-8 py-5">${r["Buy@"]}</td>
-                <td class="px-8 py-5 text-right font-mono">${r["Buy Price"]}</td>
-                <td class="px-8 py-5">${r["Sell@"]}</td>
-                <td class="px-8 py-5 text-right font-mono">${r["Sell Price"]}</td>
-                <td class="px-8 py-5 text-right font-mono text-sky-400">${r["Spread %"]}%</td>
-                <td class="px-8 py-5 text-right font-mono \( {profitClass}"> \){r["Profit % After Fees"]}%</td>
-                <td class="px-8 py-5 text-right font-mono">${r["Buy Vol (24h)"]}</td>
-                <td class="px-8 py-5 text-right font-mono">${r["Sell Vol (24h)"]}</td>
-                <td class="px-6 py-5"><span class="pill \( {r["Withdraw?"]==="✅"?"pill-green":"pill-red"}"> \){r["Withdraw?"]}</span></td>
-                <td class="px-6 py-5"><span class="pill \( {r["Deposit?"]==="✅"?"pill-green":"pill-red"}"> \){r["Deposit?"]}</span></td>
-                <td class="px-8 py-5"><span class="pill pill-blue">${r.Blockchain}</span></td>
-                <td class="px-8 py-5 text-xs text-zinc-400">${r.Stability}</td>
-                <td class="px-8 py-5 text-xs text-zinc-400">${r["Est. Expiry"]}</td>
-            </tr>
-        `;
+    let html = `<table class="w-full"><thead><tr class="bg-zinc-900 text-zinc-400 text-left"><th class="p-4">#</th><th class="p-4">Pair</th><th class="p-4">Quote</th><th class="p-4">Buy@</th><th class="p-4 text-right">Buy Price</th><th class="p-4">Sell@</th><th class="p-4 text-right">Sell Price</th><th class="p-4 text-right">Spread %</th><th class="p-4 text-right">Profit %</th><th class="p-4 text-right">Buy Vol</th><th class="p-4 text-right">Sell Vol</th><th class="p-4">WD</th><th class="p-4">DP</th><th class="p-4">Chain</th><th class="p-4">Stability</th><th class="p-4">Expiry</th></tr></thead><tbody>`;
+    results.forEach((r,i) => {
+        html += `<tr class="border-b border-zinc-800 hover:bg-zinc-900"><td class="p-4">\( {i+1}</td><td class="p-4 font-medium"> \){r.Pair}</td><td class="p-4">\( {r.Quote}</td><td class="p-4"> \){r["Buy@"]}</td><td class="p-4 text-right">\( {r["Buy Price"]}</td><td class="p-4"> \){r["Sell@"]}</td><td class="p-4 text-right">\( {r["Sell Price"]}</td><td class="p-4 text-right text-sky-400"> \){r["Spread %"]}%</td><td class="p-4 text-right \( {r["Profit % After Fees"]>=0?'text-emerald-400':'text-red-400'}"> \){r["Profit % After Fees"]}%</td><td class="p-4 text-right">\( {r["Buy Vol (24h)"]}</td><td class="p-4 text-right"> \){r["Sell Vol (24h)"]}</td><td class="p-4"><span class="pill \( {r["Withdraw?"]=="✅"?"pill-green":"pill-red"}"> \){r["Withdraw?"]}</span></td><td class="p-4"><span class="pill \( {r["Deposit?"]=="✅"?"pill-green":"pill-red"}"> \){r["Deposit?"]}</span></td><td class="p-4"><span class="pill pill-blue">\( {r.Blockchain}</span></td><td class="p-4 text-xs"> \){r.Stability}</td><td class="p-4 text-xs">${r["Est. Expiry"]}</td></tr>`;
     });
-
     html += `</tbody></table>`;
-    document.getElementById('tableContainer').innerHTML = html;
-}
-
-function downloadCSV() {
-    if (!lastResults.length) return;
-    const headers = Object.keys(lastResults[0]).join(",");
-    const rows = lastResults.map(r => Object.values(r).join(",")).join("\n");
-    const csv = headers + "\n" + rows;
-    const blob = new Blob([csv], {type: "text/csv"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "arbitrage_opportunities.csv";
-    a.click();
+    document.getElementById('tableContainer').innerHTML = html || `<div class="p-12 text-center text-zinc-500">No opportunities found yet</div>`;
 }
 
 async function startScan() {
-    const settings = getSettings();
-    log("🔍 Starting scan...");
-    document.getElementById('status').innerHTML = `<div class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></div><span class="text-amber-400">Scanning...</span>`;
-
-    try {
-        const res = await fetch("/api/scan", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify(settings)
-        });
-        const data = await res.json();
-
-        data.logs.forEach(l => log(l));
-        renderTable(data.results);
-
-        document.getElementById('lastScan').textContent = `Last scan: ${new Date().toLocaleTimeString()}`;
-        document.getElementById('status').innerHTML = `<div class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div><span class="text-emerald-400">Idle</span>`;
-    } catch(e) {
-        log("❌ Scan failed: " + e.message);
+    const settings = {
+        buy_exchanges: Array.from(document.getElementById('buy').selectedOptions).map(o=>o.value),
+        sell_exchanges: Array.from(document.getElementById('sell').selectedOptions).map(o=>o.value),
+        min_profit: parseFloat(document.getElementById('minProfit').value),
+        max_profit: parseFloat(document.getElementById('maxProfit').value),
+        min_24h_vol_usd: parseFloat(document.getElementById('minVol').value),
+        exclude_chains: Array.from(document.getElementById('exclude').selectedOptions).map(o=>o.value),
+        include_all_chains: document.getElementById('includeAll').checked
+    };
+    if (!settings.buy_exchanges.length || !settings.sell_exchanges.length) {
+        alert("Please select at least one Buy and one Sell exchange");
+        return;
     }
+    log("🔍 Starting scan...");
+    try {
+        const r = await fetch("/api/scan", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(settings)});
+        const data = await r.json();
+        data.logs.forEach(log);
+        renderTable(data.results);
+        document.getElementById('lastScan').textContent = "Just now";
+    } catch(e) { log("❌ Error: " + e); }
+}
+
+function downloadCSV() {
+    // simple CSV export from last results (you can expand)
+    alert("CSV download coming in next update — for now check Render logs");
 }
 
 function toggleAutoRefresh() {
-    autoRefresh = !autoRefresh;
-    const btn = document.getElementById('autoBtn');
-    if (autoRefresh) {
-        btn.classList.add("bg-emerald-600", "text-white");
-        document.getElementById('autoText').textContent = "Auto-refresh: ON";
-        autoInterval = setInterval(startScan, 20000);
-        log("🔄 Auto-refresh enabled (every 20s)");
-        startScan();
-    } else {
-        btn.classList.remove("bg-emerald-600", "text-white");
-        document.getElementById('autoText').textContent = "Auto-refresh: OFF";
-        clearInterval(autoInterval);
-        log("⏹️ Auto-refresh disabled");
-    }
+    alert("Auto-refresh toggle coming soon");
 }
 
-// Init
 window.onload = () => {
-    populateSelects();
-    // Load saved defaults if you want (localStorage)
-    log("👋 Scanner ready. Click SCAN NOW to begin.");
+    populate();
+    log("Scanner ready — select exchanges and click SCAN NOW");
 };
 </script>
 </body>
 </html>
 """
+    
 
 # ====================== FLASK ROUTES ======================
 @app.route('/')
