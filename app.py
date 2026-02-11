@@ -356,7 +356,6 @@ def run_scan(settings, logger):
     return results
 
 # ====================== HTML — EXACT STREAMLIT MATCH ======================
-HTML = """
 <!DOCTYPE html>
 <html>
 <head>
@@ -364,126 +363,585 @@ HTML = """
 <title>Cross-Exchange Arbitrage Scanner</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-    body { background:#111111; color:#E0E0E0; font-family:system-ui,sans-serif; }
-    .card { background:#1A1A1A; border:1px solid #222; border-radius:12px; }
-    select { background:#222; border:1px solid #333; color:#EEE; }
-    table { width:100%; border-collapse:collapse; }
-    th { background:#222; color:#EEE; padding:10px; text-align:left; font-weight:600; }
-    td { padding:10px; border-bottom:1px solid #222; }
-    tr:hover { background:#2A2A2A; }
-    .pill { padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; }
-    .pill-green { background:#1B5E20; color:#E8F5E9; }
-    .pill-red { background:#7F1D1D; color:#FEE2E2; }
-    .pill-blue { background:#0D47A1; color:#E3F2FD; }
-    .mono { font-family:ui-monospace, monospace; }
-    .good { color:#4CAF50; font-weight:700; }
-    .bad { color:#FF5252; font-weight:700; }
-    .spread { color:#42A5F5; font-weight:700; }
-    .num { text-align:right; white-space:nowrap; }
-    .small { color:#BDBDBD; font-size:12px; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    * { box-sizing: border-box; }
+    
+    body { 
+        background: linear-gradient(135deg, #0f0f1e 0%, #1a1a2e 100%);
+        color: #e8eaed;
+        font-family: 'Inter', system-ui, sans-serif;
+        min-height: 100vh;
+    }
+    
+    .glass-card {
+        background: rgba(26, 26, 46, 0.7);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 16px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+    
+    .exchange-selector {
+        background: rgba(15, 15, 30, 0.6);
+        border: 2px solid transparent;
+        border-radius: 12px;
+        transition: all 0.3s ease;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    
+    .exchange-selector::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    .exchange-selector::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+    }
+    
+    .exchange-selector::-webkit-scrollbar-thumb {
+        background: rgba(139, 92, 246, 0.5);
+        border-radius: 4px;
+    }
+    
+    .exchange-selector:focus {
+        border-color: rgba(139, 92, 246, 0.5);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+    }
+    
+    .exchange-selector option {
+        padding: 12px;
+        background: #1a1a2e;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        cursor: pointer;
+    }
+    
+    .exchange-selector option:checked {
+        background: linear-gradient(90deg, rgba(139, 92, 246, 0.3) 0%, rgba(59, 130, 246, 0.3) 100%);
+        color: #fff;
+        font-weight: 600;
+    }
+    
+    .exchange-selector option:hover {
+        background: rgba(139, 92, 246, 0.2);
+    }
+    
+    .input-field {
+        background: rgba(15, 15, 30, 0.6);
+        border: 2px solid rgba(255, 255, 255, 0.08);
+        color: #e8eaed;
+        border-radius: 10px;
+        padding: 12px 16px;
+        transition: all 0.3s ease;
+        font-weight: 500;
+    }
+    
+    .input-field:focus {
+        border-color: rgba(139, 92, 246, 0.5);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+        background: rgba(15, 15, 30, 0.8);
+    }
+    
+    .btn-primary {
+        background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%);
+        border: none;
+        color: white;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
+    }
+    
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 24px rgba(139, 92, 246, 0.5);
+    }
+    
+    .btn-primary:active {
+        transform: translateY(0);
+    }
+    
+    .btn-secondary {
+        background: rgba(255, 255, 255, 0.05);
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        color: #e8eaed;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.2);
+    }
+    
+    .data-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    
+    .data-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    
+    .data-table th {
+        background: linear-gradient(180deg, rgba(26, 26, 46, 0.95) 0%, rgba(15, 15, 30, 0.95) 100%);
+        backdrop-filter: blur(10px);
+        color: #a8b3cf;
+        padding: 16px 12px;
+        text-align: left;
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 2px solid rgba(139, 92, 246, 0.3);
+    }
+    
+    .data-table td {
+        padding: 16px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        font-size: 14px;
+    }
+    
+    .data-table tbody tr {
+        background: rgba(26, 26, 46, 0.3);
+        transition: all 0.2s ease;
+    }
+    
+    .data-table tbody tr:hover {
+        background: rgba(139, 92, 246, 0.1);
+        transform: scale(1.01);
+    }
+    
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+    }
+    
+    .badge-success {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    
+    .badge-danger {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    
+    .badge-info {
+        background: rgba(59, 130, 246, 0.15);
+        color: #3b82f6;
+        border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+    
+    .profit-positive {
+        color: #10b981;
+        font-weight: 700;
+    }
+    
+    .profit-negative {
+        color: #ef4444;
+        font-weight: 700;
+    }
+    
+    .spread-value {
+        color: #60a5fa;
+        font-weight: 700;
+    }
+    
+    .log-container {
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 12px;
+        padding: 16px;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+    
+    .log-container::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    .log-container::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+    }
+    
+    .log-container::-webkit-scrollbar-thumb {
+        background: rgba(139, 92, 246, 0.5);
+        border-radius: 4px;
+    }
+    
+    .log-entry {
+        color: #10b981;
+        margin-bottom: 4px;
+    }
+    
+    .log-timestamp {
+        color: #6b7280;
+        margin-right: 8px;
+    }
+    
+    .metric-card {
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+        border: 1px solid rgba(139, 92, 246, 0.2);
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+    }
+    
+    .metric-value {
+        font-size: 32px;
+        font-weight: 700;
+        background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    
+    .metric-label {
+        font-size: 12px;
+        color: #a8b3cf;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: 8px;
+    }
+    
+    .section-header {
+        font-size: 14px;
+        font-weight: 600;
+        color: #8b5cf6;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .glow-effect {
+        box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+    }
+    
+    .mono-font {
+        font-family: 'Courier New', monospace;
+    }
+    
+    .text-right {
+        text-align: right;
+    }
+    
+    .empty-state {
+        padding: 80px 40px;
+        text-align: center;
+        color: #6b7280;
+    }
+    
+    .empty-state-icon {
+        font-size: 64px;
+        margin-bottom: 16px;
+        opacity: 0.3;
+    }
 </style>
 </head>
 <body class="p-8">
 
-<h1 class="text-3xl font-bold mb-8 flex items-center gap-3"><span class="text-emerald-400">🌍</span> Cross-Exchange Arbitrage Scanner</h1>
+<!-- Header -->
+<div class="mb-10">
+    <h1 class="text-4xl font-bold mb-2 flex items-center gap-4">
+        <span class="text-5xl">🌍</span>
+        <span class="bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
+            Cross-Exchange Arbitrage Scanner
+        </span>
+    </h1>
+    <p class="text-gray-400 ml-16">Real-time cryptocurrency arbitrage opportunity detection</p>
+</div>
 
-<div class="grid md:grid-cols-3 gap-8 mb-10 card p-8">
-    <div>
-        <label class="block text-sm text-zinc-400 mb-2">Buy Exchanges (max 10)</label>
-        <select id="buy" multiple size="10" class="w-full h-64 rounded-xl p-3"></select>
-    </div>
-    <div>
-        <label class="block text-sm text-zinc-400 mb-2">Sell Exchanges (max 10)</label>
-        <select id="sell" multiple size="10" class="w-full h-64 rounded-xl p-3"></select>
-    </div>
-    <div class="space-y-6">
-        <div class="grid grid-cols-2 gap-6">
-            <div><label class="text-sm text-zinc-400">Min Profit %</label><input id="minProfit" type="number" step="0.1" value="1.0" class="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3"></div>
-            <div><label class="text-sm text-zinc-400">Max Profit %</label><input id="maxProfit" type="number" step="0.1" value="20.0" class="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3"></div>
-        </div>
-        <div><label class="text-sm text-zinc-400">Min 24h Vol (USD)</label><input id="minVol" type="number" value="100000" class="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3"></div>
+<!-- Configuration Panel -->
+<div class="glass-card p-8 mb-8">
+    <div class="grid lg:grid-cols-3 gap-8">
+        
+        <!-- Buy Exchanges -->
         <div>
-            <label class="text-sm text-zinc-400 mb-2 block">Exclude Chains</label>
-            <select id="exclude" multiple size="6" class="w-full rounded-xl p-3">
-                <option value="ETH">ETH</option><option value="TRC20">TRC20</option><option value="BSC">BSC</option>
-                <option value="SOL">SOL</option><option value="MATIC">MATIC</option><option value="ARB">ARB</option>
-                <option value="OP">OP</option><option value="TON">TON</option><option value="AVAX">AVAX</option>
-            </select>
-            <label class="flex items-center gap-2 mt-4"><input id="includeAll" type="checkbox" checked> Include all chains</label>
+            <div class="section-header">
+                <span>📥</span> Buy Exchanges
+            </div>
+            <p class="text-xs text-gray-400 mb-3">Select up to 10 exchanges to buy from</p>
+            <select id="buy" multiple class="exchange-selector w-full p-3"></select>
+            <p class="text-xs text-gray-500 mt-2">
+                <span id="buyCount">0</span> selected
+            </p>
+        </div>
+        
+        <!-- Sell Exchanges -->
+        <div>
+            <div class="section-header">
+                <span>📤</span> Sell Exchanges
+            </div>
+            <p class="text-xs text-gray-400 mb-3">Select up to 10 exchanges to sell on</p>
+            <select id="sell" multiple class="exchange-selector w-full p-3"></select>
+            <p class="text-xs text-gray-500 mt-2">
+                <span id="sellCount">0</span> selected
+            </p>
+        </div>
+        
+        <!-- Filters -->
+        <div class="space-y-4">
+            <div class="section-header">
+                <span>⚙️</span> Filters & Settings
+            </div>
+            
+            <!-- Profit Range -->
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-2">Min Profit %</label>
+                    <input id="minProfit" type="number" step="0.1" value="1.0" class="input-field w-full">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-2">Max Profit %</label>
+                    <input id="maxProfit" type="number" step="0.1" value="20.0" class="input-field w-full">
+                </div>
+            </div>
+            
+            <!-- Volume -->
+            <div>
+                <label class="block text-xs text-gray-400 mb-2">Min 24h Volume (USD)</label>
+                <input id="minVol" type="number" value="100000" class="input-field w-full">
+            </div>
+            
+            <!-- Exclude Chains -->
+            <div>
+                <label class="block text-xs text-gray-400 mb-2">Exclude Blockchains</label>
+                <select id="exclude" multiple size="4" class="exchange-selector w-full p-2 text-sm">
+                    <option value="ETH">Ethereum (ETH)</option>
+                    <option value="TRC20">TRON (TRC20)</option>
+                    <option value="BSC">BNB Chain (BSC)</option>
+                    <option value="SOL">Solana (SOL)</option>
+                    <option value="MATIC">Polygon (MATIC)</option>
+                    <option value="ARB">Arbitrum (ARB)</option>
+                    <option value="OP">Optimism (OP)</option>
+                    <option value="TON">TON</option>
+                    <option value="AVAX">Avalanche (AVAX)</option>
+                </select>
+            </div>
+            
+            <!-- Include All Chains -->
+            <label class="flex items-center gap-3 cursor-pointer">
+                <input id="includeAll" type="checkbox" checked class="w-5 h-5 rounded border-2 border-purple-500 bg-transparent checked:bg-purple-500">
+                <span class="text-sm text-gray-300">Include all available chains</span>
+            </label>
         </div>
     </div>
 </div>
 
-<div class="flex gap-6 mb-10">
-    <button onclick="startScan()" class="flex-1 bg-[#1976D2] hover:bg-[#1565C0] py-4 rounded-2xl text-lg font-semibold">🚀 SCAN NOW</button>
-    <button onclick="downloadCSV()" class="px-12 bg-[#222] hover:bg-[#333] rounded-2xl">⬇️ CSV</button>
+<!-- Action Buttons -->
+<div class="flex gap-4 mb-8">
+    <button onclick="startScan()" class="btn-primary flex-1 py-4 rounded-xl text-lg flex items-center justify-center gap-3">
+        <span class="text-2xl">🚀</span>
+        <span>START SCANNING</span>
+    </button>
+    <button onclick="downloadCSV()" class="btn-secondary px-8 rounded-xl flex items-center gap-3">
+        <span>⬇️</span>
+        <span>Export CSV</span>
+    </button>
 </div>
 
+<!-- Metrics Dashboard -->
+<div id="metricsPanel" class="grid grid-cols-4 gap-6 mb-8" style="display: none;">
+    <div class="metric-card">
+        <div class="metric-value" id="totalOpps">0</div>
+        <div class="metric-label">Total Opportunities</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-value" id="avgProfit">0%</div>
+        <div class="metric-label">Avg Profit</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-value" id="maxProfit">0%</div>
+        <div class="metric-label">Max Profit</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-value" id="totalPairs">0</div>
+        <div class="metric-label">Unique Pairs</div>
+    </div>
+</div>
+
+<!-- Results Section -->
 <div class="grid lg:grid-cols-12 gap-8">
-    <div class="lg:col-span-4 card p-6 flex flex-col">
-        <div class="uppercase text-xs tracking-widest text-emerald-400 mb-4">Live Log</div>
-        <div id="log" class="flex-1 overflow-auto font-mono text-sm bg-black/60 p-5 rounded-xl text-emerald-300"></div>
-    </div>
-    <div class="lg:col-span-8 card overflow-hidden">
-        <div class="px-8 py-5 border-b border-zinc-800 bg-zinc-950 flex justify-between">
-            <div>Opportunities <span id="count" class="text-emerald-400">(0)</span></div>
-            <div id="lastScan" class="text-xs text-zinc-500">Never</div>
+    
+    <!-- Log Panel -->
+    <div class="lg:col-span-4 glass-card p-6">
+        <div class="section-header mb-4">
+            <span>📊</span> Live Activity Log
         </div>
-        <div id="tableContainer" class="overflow-auto max-h-[70vh]"></div>
+        <div id="log" class="log-container"></div>
     </div>
+    
+    <!-- Results Table -->
+    <div class="lg:col-span-8 glass-card overflow-hidden">
+        <div class="px-6 py-5 border-b border-white/5 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <span class="text-lg font-semibold">Arbitrage Opportunities</span>
+                <span id="count" class="status-badge badge-info">0 found</span>
+            </div>
+            <div id="lastScan" class="text-sm text-gray-500">Never scanned</div>
+        </div>
+        <div id="tableContainer" class="overflow-auto" style="max-height: 600px;"></div>
+    </div>
+    
 </div>
 
 <script>
 const exList = {{ TOP_EXCHANGES | tojson }};
 const exNames = {{ EXCHANGE_NAMES | tojson }};
+let currentResults = [];
 
 function populateSelects() {
     const buy = document.getElementById('buy');
     const sell = document.getElementById('sell');
+    
     exList.forEach(ex => {
-        let opt = document.createElement('option');
-        opt.value = ex;
-        opt.text = exNames[ex] || ex;
-        buy.appendChild(opt.cloneNode(true));
-        sell.appendChild(opt);
+        let optBuy = document.createElement('option');
+        optBuy.value = ex;
+        optBuy.text = exNames[ex] || ex;
+        buy.appendChild(optBuy);
+        
+        let optSell = document.createElement('option');
+        optSell.value = ex;
+        optSell.text = exNames[ex] || ex;
+        sell.appendChild(optSell);
     });
-    buy.options[0].selected = true;
-    sell.options[1].selected = true;
+    
+    // Default selections
+    if (buy.options.length > 0) buy.options[0].selected = true;
+    if (sell.options.length > 1) sell.options[1].selected = true;
+    
+    updateSelectionCounts();
+    
+    // Add event listeners for selection counts
+    buy.addEventListener('change', updateSelectionCounts);
+    sell.addEventListener('change', updateSelectionCounts);
+}
+
+function updateSelectionCounts() {
+    const buyCount = document.getElementById('buy').selectedOptions.length;
+    const sellCount = document.getElementById('sell').selectedOptions.length;
+    document.getElementById('buyCount').textContent = buyCount;
+    document.getElementById('sellCount').textContent = sellCount;
 }
 
 function log(msg) {
-    const l = document.getElementById('log');
+    const logEl = document.getElementById('log');
     const ts = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-    l.innerHTML += `<span class="text-zinc-500">[${ts}]</span> ${msg}<br>`;
-    l.scrollTop = l.scrollHeight;
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.innerHTML = `<span class="log-timestamp">[${ts}]</span>${msg}`;
+    logEl.appendChild(entry);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function updateMetrics(results) {
+    if (results.length === 0) {
+        document.getElementById('metricsPanel').style.display = 'none';
+        return;
+    }
+    
+    document.getElementById('metricsPanel').style.display = 'grid';
+    
+    const profits = results.map(r => r["Profit % After Fees"]);
+    const avgProfit = (profits.reduce((a, b) => a + b, 0) / profits.length).toFixed(2);
+    const maxProfitVal = Math.max(...profits).toFixed(2);
+    const uniquePairs = new Set(results.map(r => r.Pair)).size;
+    
+    document.getElementById('totalOpps').textContent = results.length;
+    document.getElementById('avgProfit').textContent = avgProfit + '%';
+    document.getElementById('maxProfit').textContent = maxProfitVal + '%';
+    document.getElementById('totalPairs').textContent = uniquePairs;
 }
 
 function renderTable(results) {
-    document.getElementById('count').textContent = `(${results.length})`;
-    let html = `<table><thead><tr><th class="num">#</th><th>Pair</th><th>Quote</th><th>Buy@</th><th class="num">Buy Price</th><th>Sell@</th><th class="num">Sell Price</th><th class="num">Spread %</th><th class="num">Profit % After Fees</th><th class="num">Buy Vol (24h)</th><th class="num">Sell Vol (24h)</th><th>Withdraw?</th><th>Deposit?</th><th>Blockchain</th><th>Stability</th><th>Est. Expiry</th></tr></thead><tbody>`;
+    currentResults = results;
+    document.getElementById('count').textContent = `${results.length} found`;
+    updateMetrics(results);
+    
+    if (results.length === 0) {
+        document.getElementById('tableContainer').innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">🔍</div>
+                <h3 class="text-xl font-semibold mb-2">No Opportunities Found</h3>
+                <p class="text-gray-500">Try adjusting your filters or selecting different exchanges</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = `
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th class="text-right">#</th>
+                    <th>Pair</th>
+                    <th>Quote</th>
+                    <th>Buy @</th>
+                    <th class="text-right">Buy Price</th>
+                    <th>Sell @</th>
+                    <th class="text-right">Sell Price</th>
+                    <th class="text-right">Spread %</th>
+                    <th class="text-right">Net Profit %</th>
+                    <th class="text-right">Buy Vol</th>
+                    <th class="text-right">Sell Vol</th>
+                    <th>W</th>
+                    <th>D</th>
+                    <th>Chain</th>
+                    <th>Stability</th>
+                    <th>Expiry</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
     results.forEach((r, i) => {
-        const profitClass = r["Profit % After Fees"] >= 0 ? "good" : "bad";
-        html += `<tr>
-            <td class="num mono">${i+1}</td>
-            <td class="mono">${r.Pair}</td>
-            <td>${r.Quote}</td>
-            <td>${r["Buy@"]}</td>
-            <td class="num mono">${r["Buy Price"]}</td>
-            <td>${r["Sell@"]}</td>
-            <td class="num mono">${r["Sell Price"]}</td>
-            <td class="num spread">${r["Spread %"]}%</td>
-            <td class="num \( {profitClass}"> \){r["Profit % After Fees"]}%</td>
-            <td class="num mono">${r["Buy Vol (24h)"]}</td>
-            <td class="num mono">${r["Sell Vol (24h)"]}</td>
-            <td><span class="pill \( {r["Withdraw?"]==="✅" ? "pill-green" : "pill-red"}"> \){r["Withdraw?"]}</span></td>
-            <td><span class="pill \( {r["Deposit?"]==="✅" ? "pill-green" : "pill-red"}"> \){r["Deposit?"]}</span></td>
-            <td><span class="pill pill-blue">${r.Blockchain}</span></td>
-            <td class="small">${r.Stability}</td>
-            <td class="small">${r["Est. Expiry"]}</td>
-        </tr>`;
+        const profitClass = r["Profit % After Fees"] >= 0 ? "profit-positive" : "profit-negative";
+        const wBadge = r["Withdraw?"] === "✅" ? "badge-success" : "badge-danger";
+        const dBadge = r["Deposit?"] === "✅" ? "badge-success" : "badge-danger";
+        
+        html += `
+            <tr>
+                <td class="text-right mono-font" style="color: #6b7280;">${i + 1}</td>
+                <td class="mono-font" style="font-weight: 600;">${r.Pair}</td>
+                <td style="color: #a8b3cf;">${r.Quote}</td>
+                <td>${r["Buy@"]}</td>
+                <td class="text-right mono-font">${r["Buy Price"]}</td>
+                <td>${r["Sell@"]}</td>
+                <td class="text-right mono-font">${r["Sell Price"]}</td>
+                <td class="text-right spread-value">${r["Spread %"]}%</td>
+                <td class="text-right ${profitClass}">${r["Profit % After Fees"]}%</td>
+                <td class="text-right mono-font">${r["Buy Vol (24h)"]}</td>
+                <td class="text-right mono-font">${r["Sell Vol (24h)"]}</td>
+                <td><span class="status-badge ${wBadge}">${r["Withdraw?"]}</span></td>
+                <td><span class="status-badge ${dBadge}">${r["Deposit?"]}</span></td>
+                <td><span class="status-badge badge-info">${r.Blockchain}</span></td>
+                <td style="font-size: 12px; color: #9ca3af;">${r.Stability}</td>
+                <td style="font-size: 12px; color: #9ca3af;">${r["Est. Expiry"]}</td>
+            </tr>
+        `;
     });
+    
     html += `</tbody></table>`;
-    document.getElementById('tableContainer').innerHTML = html || `<div class="p-20 text-center text-zinc-500">No opportunities found</div>`;
+    document.getElementById('tableContainer').innerHTML = html;
 }
 
 async function startScan() {
@@ -496,30 +954,97 @@ async function startScan() {
         exclude_chains: Array.from(document.getElementById('exclude').selectedOptions).map(o => o.value),
         include_all_chains: document.getElementById('includeAll').checked
     };
+    
     if (!settings.buy_exchanges.length || !settings.sell_exchanges.length) {
-        alert("Please select at least one Buy and one Sell exchange");
+        log("❌ Error: Please select at least one buy and one sell exchange");
         return;
     }
-    log("🔍 Scanning exchanges...");
+    
+    if (settings.buy_exchanges.length > 10 || settings.sell_exchanges.length > 10) {
+        log("❌ Error: Maximum 10 exchanges per side");
+        return;
+    }
+    
+    log("🔍 Starting scan...");
+    document.getElementById('tableContainer').innerHTML = `
+        <div class="empty-state">
+            <div class="empty-state-icon">⏳</div>
+            <h3 class="text-xl font-semibold mb-2">Scanning exchanges...</h3>
+            <p class="text-gray-500">Please wait while we analyze arbitrage opportunities</p>
+        </div>
+    `;
+    
     try {
-        const res = await fetch("/api/scan", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(settings)});
+        const res = await fetch("/api/scan", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(settings)
+        });
+        
         const data = await res.json();
-        data.logs.forEach(log);
+        
+        data.logs.forEach(msg => log(msg));
         renderTable(data.results);
-        document.getElementById('lastScan').textContent = "Just now";
-    } catch(e) { log("❌ " + e.message); }
+        
+        const now = new Date().toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+        document.getElementById('lastScan').textContent = `Last scan: ${now}`;
+        
+    } catch(e) {
+        log(`❌ Error: ${e.message}`);
+        document.getElementById('tableContainer').innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">⚠️</div>
+                <h3 class="text-xl font-semibold mb-2">Scan Failed</h3>
+                <p class="text-gray-500">${e.message}</p>
+            </div>
+        `;
+    }
 }
 
-function downloadCSV() { alert("CSV coming soon"); }
+function downloadCSV() {
+    if (currentResults.length === 0) {
+        log("⚠️ No data to export");
+        return;
+    }
+    
+    const headers = Object.keys(currentResults[0]);
+    const csv = [
+        headers.join(','),
+        ...currentResults.map(row => 
+            headers.map(header => {
+                const value = row[header];
+                return typeof value === 'string' && value.includes(',') 
+                    ? `"${value}"` 
+                    : value;
+            }).join(',')
+        )
+    ].join('\n');
+    
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `arbitrage_opportunities_${Date.now()}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+    
+    log("✅ CSV exported successfully");
+}
 
 window.onload = () => {
     populateSelects();
-    log("Scanner ready — select exchanges and click SCAN NOW");
+    log("✨ Scanner initialized and ready");
+    log("💡 Select your exchanges and click START SCANNING to begin");
 };
 </script>
+
 </body>
 </html>
-"""
+        
 
 # ====================== ROUTES ======================
 @app.route('/')
